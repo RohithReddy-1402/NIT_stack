@@ -1,6 +1,8 @@
 import { useAuth } from "@/contexts/AuthContext";
+import { useTheme } from "@/contexts/ThemeContext";
 import { useToast } from "@/contexts/ToastContext";
 import { router } from "expo-router";
+import * as WebBrowser from "expo-web-browser";
 import {
   Check,
   ChevronLeft,
@@ -9,34 +11,22 @@ import {
   Trash2,
   User,
 } from "lucide-react-native";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Alert,
   FlatList,
-  Linking,
-  Platform,
   StyleSheet,
   Text,
   TouchableOpacity,
   View,
 } from "react-native";
-
-const colors = {
-  void: "#0A0A0B",
-  onyx: "#141416",
-  onyxRaised: "#1C1C1F",
-  chrome: "#F5F5F7",
-  silver: "#C9C9CE",
-  steel: "#8E8E93",
-  hairline: "#2C2C30",
-  accent: "#8E8EFF",
-  danger: "#FF453A",
-  success: "#32D74B",
-};
+import { SafeAreaView } from "react-native-safe-area-context";
 
 export default function VerifyPaperScreen() {
   const { user, loading: authLoading } = useAuth();
   const { addToast } = useToast();
+  const { colors } = useTheme();
+  const styles = useMemo(() => getStyles(colors), [colors]);
   const [papers, setPapers] = useState([]);
   const [selected, setSelected] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -116,7 +106,7 @@ export default function VerifyPaperScreen() {
 
   if (selected) {
     return (
-      <View style={styles.screen}>
+      <SafeAreaView style={styles.screen} edges={["top"]}>
         <View style={styles.topBar}>
           <TouchableOpacity onPress={() => setSelected(null)} style={styles.backBtn}>
             <ChevronLeft size={22} color={colors.chrome} strokeWidth={2} />
@@ -132,7 +122,9 @@ export default function VerifyPaperScreen() {
             style={styles.viewPdfBtn}
             activeOpacity={0.85}
             onPress={() =>
-              Linking.openURL(`https://pdf.nitkkrpyqs.in/${selected.r2Key}`)
+              WebBrowser.openBrowserAsync(
+                `https://pdf.nitkkrpyqs.in/${selected.r2Key}`,
+              )
             }
           >
             <Eye size={16} color={colors.void} strokeWidth={2} />
@@ -178,12 +170,12 @@ export default function VerifyPaperScreen() {
             </TouchableOpacity>
           </View>
         </View>
-      </View>
+      </SafeAreaView>
     );
   }
 
   return (
-    <View style={styles.screen}>
+    <SafeAreaView style={styles.screen} edges={["top"]}>
       <View style={styles.topBar}>
         <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
           <ChevronLeft size={22} color={colors.chrome} strokeWidth={2} />
@@ -227,25 +219,31 @@ export default function VerifyPaperScreen() {
           )
         }
       />
-    </View>
+    </SafeAreaView>
   );
 }
 
-const DetailRow = ({ label, value }) => (
-  <View style={styles.detailRow}>
-    <Text style={styles.detailLabel}>{label}</Text>
-    <Text style={styles.detailValue}>{value}</Text>
-  </View>
-);
+const DetailRow = ({ label, value }) => {
+  const { colors } = useTheme();
+  const styles = useMemo(() => getStyles(colors), [colors]);
 
-const styles = StyleSheet.create({
+  return (
+    <View style={styles.detailRow}>
+      <Text style={styles.detailLabel}>{label}</Text>
+      <Text style={styles.detailValue}>{value}</Text>
+    </View>
+  );
+};
+
+const getStyles = (colors) =>
+  StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.void },
   topBar: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
     paddingHorizontal: 16,
-    paddingTop: Platform.OS === "ios" ? 56 : 24,
+    paddingTop: 16,
     paddingBottom: 16,
     borderBottomWidth: 1,
     borderBottomColor: colors.hairline,

@@ -1,4 +1,5 @@
 import { Eye, FolderDown, Save } from "lucide-react-native";
+import { useMemo } from "react";
 import {
   Modal,
   StyleSheet,
@@ -6,15 +7,7 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
-
-const colors = {
-  onyxRaised: "#1C1C1F",
-  onyx: "#141416",
-  chrome: "#F5F5F7",
-  silver: "#C9C9CE",
-  steel: "#8E8E93",
-  hairline: "#2C2C30",
-};
+import { useTheme } from "../contexts/ThemeContext";
 
 export default function DownloadOptionsSheet({
   visible,
@@ -25,6 +18,9 @@ export default function DownloadOptionsSheet({
   onSaveInApp,
   onSaveToDevice,
 }) {
+  const { colors } = useTheme();
+  const styles = useMemo(() => getStyles(colors), [colors]);
+
   const pick = (action) => {
     onClose?.();
     action?.();
@@ -49,19 +45,21 @@ export default function DownloadOptionsSheet({
           </Text>
           {subtitle ? <Text style={styles.subtitle}>{subtitle}</Text> : null}
 
-          <TouchableOpacity
-            style={styles.option}
-            activeOpacity={0.8}
-            onPress={() => pick(onView)}
-          >
-            <View style={styles.optionIcon}>
-              <Eye size={18} color={colors.chrome} strokeWidth={1.75} />
-            </View>
-            <View style={styles.optionTextWrap}>
-              <Text style={styles.optionTitle}>View</Text>
-              <Text style={styles.optionDesc}>Open the paper right now</Text>
-            </View>
-          </TouchableOpacity>
+          {onView && (
+            <TouchableOpacity
+              style={styles.option}
+              activeOpacity={0.8}
+              onPress={() => pick(onView)}
+            >
+              <View style={styles.optionIcon}>
+                <Eye size={18} color={colors.chrome} strokeWidth={1.75} />
+              </View>
+              <View style={styles.optionTextWrap}>
+                <Text style={styles.optionTitle}>View</Text>
+                <Text style={styles.optionDesc}>Open the paper right now</Text>
+              </View>
+            </TouchableOpacity>
+          )}
 
           <TouchableOpacity
             style={styles.option}
@@ -108,7 +106,8 @@ export default function DownloadOptionsSheet({
   );
 }
 
-const styles = StyleSheet.create({
+const getStyles = (colors) =>
+  StyleSheet.create({
   backdrop: {
     flex: 1,
     backgroundColor: "rgba(0,0,0,0.6)",

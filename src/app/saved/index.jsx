@@ -1,9 +1,12 @@
+import { useTheme } from "@/contexts/ThemeContext";
 import { useToast } from "@/contexts/ToastContext";
 import { getLibrary, removeFromLibrary } from "@/services/downloads";
 import { useFocusEffect } from "expo-router";
+import { getContentUriAsync } from "expo-file-system/legacy";
+import * as IntentLauncher from "expo-intent-launcher";
 import * as Sharing from "expo-sharing";
 import { BookMarked, FileText, FolderOpen, Trash2 } from "lucide-react-native";
-import { useCallback, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import {
   Alert,
   FlatList,
@@ -13,22 +16,20 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 
-const colors = {
-  void: "#0A0A0B",
-  onyx: "#141416",
-  onyxRaised: "#1C1C1F",
-  chrome: "#F5F5F7",
-  silver: "#C9C9CE",
-  steel: "#8E8E93",
-  hairline: "#2C2C30",
-  accent: "#8E8EFF",
-};
+const TABS = [
+  { key: "papers", label: "Question Papers" },
+  { key: "syllabus", label: "Syllabus" },
+];
 
 export default function SavedScreen() {
   const { addToast } = useToast();
+  const { colors } = useTheme();
+  const styles = useMemo(() => getStyles(colors), [colors]);
   const [library, setLibrary] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [activeTab, setActiveTab] = useState("papers");
 
   const loadLibrary = useCallback(async () => {
     setLoading(true);
@@ -47,6 +48,20 @@ export default function SavedScreen() {
   );
 
   const handleOpen = async (item) => {
+    if (Platform.OS === "android") {
+      try {
+        const contentUri = await getContentUriAsync(item.uri);
+        await IntentLauncher.startActivityAsync("android.intent.action.VIEW", {
+          data: contentUri,
+          flags: 1, // FLAG_GRANT_READ_URI_PERMISSION
+          type: "application/pdf",
+        });
+        return;
+      } catch {
+        // no PDF viewer registered for ACTION_VIEW — fall back to the share sheet below
+      }
+    }
+
     try {
       const available = await Sharing.isAvailableAsync();
       if (available) {
@@ -79,14 +94,34 @@ export default function SavedScreen() {
   };
 
   return (
-    <View style={styles.screen}>
+    <SafeAreaView style={styles.screen} edges={["top"]}>
       <View style={styles.topBar}>
         <BookMarked size={20} color={colors.accent} strokeWidth={1.75} />
         <Text style={styles.brand}>Saved</Text>
       </View>
 
+      <View style={styles.tabsRow}>
+        {TABS.map((tab) => (
+          <TouchableOpacity
+            key={tab.key}
+            style={[styles.tab, activeTab === tab.key && styles.tabActive]}
+            activeOpacity={0.85}
+            onPress={() => setActiveTab(tab.key)}
+          >
+            <Text
+              style={[
+                styles.tabText,
+                activeTab === tab.key && styles.tabTextActive,
+              ]}
+            >
+              {tab.label}
+            </Text>
+          </TouchableOpacity>
+        ))}
+      </View>
+
       <FlatList
-        data={library}
+        data={library.filter((item) => item.source === activeTab)}
         keyExtractor={(item) => item.id}
         contentContainerStyle={styles.listContent}
         renderItem={({ item }) => (
@@ -138,25 +173,27 @@ export default function SavedScreen() {
               <BookMarked size={44} color={colors.steel} strokeWidth={1.5} />
               <Text style={styles.emptyTitle}>Nothing saved yet</Text>
               <Text style={styles.emptySubtitle}>
-                Papers and syllabus files you save &quot;in app&quot; show up
-                here.
+                {activeTab === "syllabus"
+                  ? 'Syllabus pages you save "in app" show up here.'
+                  : 'Question papers you save "in app" show up here.'}
               </Text>
             </View>
           )
         }
       />
-    </View>
+    </SafeAreaView>
   );
 }
 
-const styles = StyleSheet.create({
+const getStyles = (colors) =>
+  StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.void },
   topBar: {
     flexDirection: "row",
     alignItems: "center",
     gap: 10,
     paddingHorizontal: 20,
-    paddingTop: Platform.OS === "ios" ? 56 : 24,
+    paddingTop: 16,
     paddingBottom: 16,
     borderBottomWidth: 1,
     borderBottomColor: colors.hairline,
@@ -167,6 +204,25 @@ const styles = StyleSheet.create({
     fontWeight: "800",
     letterSpacing: -0.3,
   },
+
+  tabsRow: {
+    flexDirection: "row",
+    gap: 10,
+    paddingHorizontal: 20,
+    paddingTop: 16,
+  },
+  tab: {
+    flex: 1,
+    alignItems: "center",
+    paddingVertical: 10,
+    borderRadius: 12,
+    backgroundColor: colors.onyxRaised,
+    borderWidth: 1,
+    borderColor: colors.hairline,
+  },
+  tabActive: { backgroundColor: colors.chrome, borderColor: colors.chrome },
+  tabText: { color: colors.silver, fontSize: 13, fontWeight: "700" },
+  tabTextActive: { color: colors.void },
 
   listContent: { paddingHorizontal: 20, paddingTop: 16, paddingBottom: 110 },
 

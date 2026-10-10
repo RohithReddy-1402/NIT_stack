@@ -1,16 +1,10 @@
 import { router } from "expo-router";
-import { Globe, Mail, MapPin } from "lucide-react-native";
-import { StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { ExternalLink, Globe, Mail, MapPin } from "lucide-react-native";
+import { useMemo } from "react";
+import { Linking, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { useTheme } from "../contexts/ThemeContext";
 
-const colors = {
-  void: "#0A0A0B",
-  onyx: "#141416",
-  chrome: "#F5F5F7",
-  silver: "#C9C9CE",
-  steel: "#8E8E93",
-  hairline: "#2C2C30",
-  accent: "#8E8EFF",
-};
+const OFFICIAL_SITE_URL = "https://www.nitkkr.ac.in";
 
 const LINKS = [
   { label: "Home", route: "/" },
@@ -24,6 +18,9 @@ const LINKS = [
 ];
 
 export default function Footer() {
+  const { colors } = useTheme();
+  const styles = useMemo(() => getStyles(colors), [colors]);
+
   return (
     <View style={styles.wrap}>
       <View style={styles.brandRow}>
@@ -68,6 +65,33 @@ export default function Footer() {
         <Text style={styles.reachText}>nitkkrpyqs.in</Text>
       </View>
 
+      <Text style={styles.sectionLabel}>Disclaimer</Text>
+      <Text style={styles.disclaimerText}>
+        This application is not affiliated with, endorsed by, sponsored by,
+        or officially connected with NIT Kurukshetra or any Government of
+        India / State Government department.
+      </Text>
+      <Text style={[styles.disclaimerText, { marginTop: 8 }]}>
+        The syllabus, curriculum and course information shown here is
+        compiled from the official NIT Kurukshetra website for informational
+        purposes only. Please verify against the official source below
+        before relying on it.
+      </Text>
+
+      <Text style={[styles.sectionLabel, { marginTop: 14 }]}>
+        Official Source
+      </Text>
+      <TouchableOpacity
+        style={styles.reachRow}
+        activeOpacity={0.7}
+        onPress={() => Linking.openURL(OFFICIAL_SITE_URL)}
+      >
+        <ExternalLink size={15} color={colors.accent} strokeWidth={1.75} />
+        <Text style={[styles.reachText, styles.sourceLink]}>
+          NIT Kurukshetra official website — nitkkr.ac.in
+        </Text>
+      </TouchableOpacity>
+
       <View style={styles.hr} />
       <Text style={styles.copy}>
         © {new Date().getFullYear()} NIT KKR PYQs. Built by students, for
@@ -78,7 +102,8 @@ export default function Footer() {
   );
 }
 
-const styles = StyleSheet.create({
+const getStyles = (colors) =>
+  StyleSheet.create({
   wrap: {
     backgroundColor: colors.onyx,
     borderTopWidth: 1,
@@ -110,6 +135,8 @@ const styles = StyleSheet.create({
 
   reachRow: { flexDirection: "row", alignItems: "flex-start", gap: 8, marginBottom: 10 },
   reachText: { color: colors.silver, fontSize: 13, flexShrink: 1 },
+  sourceLink: { color: colors.accent, textDecorationLine: "underline" },
+  disclaimerText: { color: colors.steel, fontSize: 12, lineHeight: 18 },
 
   hr: { height: 1, backgroundColor: colors.hairline, marginTop: 10, marginBottom: 14 },
   copy: { color: colors.steel, fontSize: 11, marginBottom: 4 },

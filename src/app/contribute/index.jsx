@@ -1,13 +1,13 @@
 import { useAuth } from "@/contexts/AuthContext";
+import { useTheme } from "@/contexts/ThemeContext";
 import { useToast } from "@/contexts/ToastContext";
 import * as DocumentPicker from "expo-document-picker";
 import { router } from "expo-router";
 import { ChevronDown, ChevronLeft, FileUp, UploadCloud } from "lucide-react-native";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   FlatList,
   Modal,
-  Platform,
   ScrollView,
   StyleSheet,
   Text,
@@ -15,17 +15,7 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
-
-const colors = {
-  void: "#0A0A0B",
-  onyx: "#141416",
-  onyxRaised: "#1C1C1F",
-  chrome: "#F5F5F7",
-  silver: "#C9C9CE",
-  steel: "#8E8E93",
-  hairline: "#2C2C30",
-  accent: "#8E8EFF",
-};
+import { SafeAreaView } from "react-native-safe-area-context";
 
 const SEMESTERS = Array.from({ length: 8 }, (_, i) => String(i + 1));
 const EXAM_TYPES = ["Mid-1", "Mid-2", "Sem"];
@@ -65,6 +55,8 @@ async function uploadToR2(file, metadata) {
 export default function ContributeScreen() {
   const { isLoggedIn, user, loading: authLoading } = useAuth();
   const { addToast } = useToast();
+  const { colors } = useTheme();
+  const styles = useMemo(() => getStyles(colors), [colors]);
 
   const [title, setTitle] = useState("");
   const [subject, setSubject] = useState("");
@@ -127,7 +119,7 @@ export default function ContributeScreen() {
   };
 
   return (
-    <View style={styles.screen}>
+    <SafeAreaView style={styles.screen} edges={["top"]}>
       <View style={styles.topBar}>
         <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
           <ChevronLeft size={22} color={colors.chrome} strokeWidth={2} />
@@ -267,18 +259,19 @@ export default function ContributeScreen() {
           </View>
         </TouchableOpacity>
       </Modal>
-    </View>
+    </SafeAreaView>
   );
 }
 
-const styles = StyleSheet.create({
+const getStyles = (colors) =>
+  StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.void },
   topBar: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
     paddingHorizontal: 16,
-    paddingTop: Platform.OS === "ios" ? 56 : 24,
+    paddingTop: 16,
     paddingBottom: 16,
     borderBottomWidth: 1,
     borderBottomColor: colors.hairline,
@@ -363,4 +356,4 @@ const styles = StyleSheet.create({
   sheetTitle: { color: colors.chrome, fontSize: 16, fontWeight: "700", marginBottom: 8 },
   sheetOption: { paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: colors.hairline },
   sheetOptionText: { color: colors.silver, fontSize: 15 },
-});
+  });

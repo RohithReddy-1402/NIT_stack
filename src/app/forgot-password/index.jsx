@@ -1,20 +1,24 @@
+import PasswordInput from "@/components/PasswordInput";
+import { useTheme } from "@/contexts/ThemeContext";
 import { useToast } from "@/contexts/ToastContext";
 import { useRouter } from "expo-router";
-import { useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   KeyboardAvoidingView,
-  Platform,
   Pressable,
-  SafeAreaView,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
   View,
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 
 export default function ForgotPasswordScreen() {
   const router = useRouter();
   const { addToast } = useToast();
+  const { colors } = useTheme();
+  const styles = useMemo(() => getStyles(colors), [colors]);
 
   const [step, setStep] = useState("email"); // email | otp | password
   const [email, setEmail] = useState("");
@@ -22,7 +26,14 @@ export default function ForgotPasswordScreen() {
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [loading, setLoading] = useState(false);
+  const [resendCooldown, setResendCooldown] = useState(0);
   const inputsRef = useRef([]);
+
+  useEffect(() => {
+    if (resendCooldown <= 0) return;
+    const timer = setTimeout(() => setResendCooldown((s) => s - 1), 1000);
+    return () => clearTimeout(timer);
+  }, [resendCooldown]);
 
   const handleOtpChange = (text, index) => {
     if (text !== "" && isNaN(text)) return;
@@ -56,6 +67,7 @@ export default function ForgotPasswordScreen() {
 
       if (response.status === 200) {
         setStep("otp");
+        setResendCooldown(60);
       } else if (response.status === 208) {
         setStep("password");
       } else {
@@ -131,10 +143,12 @@ export default function ForgotPasswordScreen() {
 
   return (
     <SafeAreaView style={styles.safeArea}>
-      <KeyboardAvoidingView
-        style={styles.container}
-        behavior={Platform.OS === "ios" ? "padding" : undefined}
-      >
+      <KeyboardAvoidingView style={{ flex: 1 }} behavior="padding">
+        <ScrollView
+          contentContainerStyle={styles.container}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+        >
         <Pressable style={styles.closeButton} onPress={() => router.back()}>
           <Text style={styles.closeText}>×</Text>
         </Pressable>
@@ -152,7 +166,7 @@ export default function ForgotPasswordScreen() {
               value={email}
               onChangeText={setEmail}
               placeholder="Enter your email"
-              placeholderTextColor="#777"
+              placeholderTextColor={colors.steel}
               autoCapitalize="none"
               keyboardType="email-address"
               style={styles.input}
@@ -208,6 +222,21 @@ export default function ForgotPasswordScreen() {
                 {loading ? "Verifying..." : "Verify"}
               </Text>
             </Pressable>
+
+            <View style={styles.resendRow}>
+              {resendCooldown > 0 ? (
+                <Text style={styles.resendText}>
+                  Resend code in {Math.floor(resendCooldown / 60)}:
+                  {String(resendCooldown % 60).padStart(2, "0")}
+                </Text>
+              ) : (
+                <Pressable onPress={sendOtp} disabled={loading}>
+                  <Text style={styles.resendLink}>
+                    Didn&apos;t get the code? Resend
+                  </Text>
+                </Pressable>
+              )}
+            </View>
           </>
         )}
 
@@ -218,22 +247,20 @@ export default function ForgotPasswordScreen() {
               <Text style={styles.subtitle}>Choose a new password for your account</Text>
             </View>
             <Text style={styles.label}>New Password</Text>
-            <TextInput
+            <PasswordInput
+              inputStyle={styles.input}
               value={password}
               onChangeText={setPassword}
               placeholder="Enter new password"
-              placeholderTextColor="#777"
-              secureTextEntry
-              style={styles.input}
+              placeholderTextColor={colors.steel}
             />
             <Text style={styles.label}>Confirm Password</Text>
-            <TextInput
+            <PasswordInput
+              inputStyle={styles.input}
               value={confirmPassword}
               onChangeText={setConfirmPassword}
               placeholder="Re-enter new password"
-              placeholderTextColor="#777"
-              secureTextEntry
-              style={styles.input}
+              placeholderTextColor={colors.steel}
             />
             <Pressable
               style={({ pressed }) => [
@@ -250,16 +277,20 @@ export default function ForgotPasswordScreen() {
             </Pressable>
           </>
         )}
+        </ScrollView>
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }
 
-const styles = StyleSheet.create({
-  safeArea: { flex: 1, backgroundColor: "#09090B" },
+const getStyles = (colors) =>
+  StyleSheet.create({
+  safeArea: { flex: 1, backgroundColor: colors.void },
+  // contentContainerStyle for a ScrollView, not a flex box.
   container: {
-    flex: 1,
+    flexGrow: 1,
     paddingHorizontal: 24,
+    paddingBottom: 24,
     maxWidth: 500,
     width: "100%",
     alignSelf: "center",
@@ -274,22 +305,22 @@ const styles = StyleSheet.create({
     marginTop: 12,
     alignSelf: "flex-start",
   },
-  closeText: { color: "#FFFFFF", fontSize: 28, fontWeight: "300", lineHeight: 30 },
+  closeText: { color: colors.chrome, fontSize: 28, fontWeight: "300", lineHeight: 30 },
 
   header: { marginTop: 35, marginBottom: 32 },
-  title: { color: "#FFFFFF", fontSize: 28, fontWeight: "700", letterSpacing: -0.5 },
-  subtitle: { color: "#8E8E93", fontSize: 14, marginTop: 9, lineHeight: 21 },
+  title: { color: colors.chrome, fontSize: 28, fontWeight: "700", letterSpacing: -0.5 },
+  subtitle: { color: colors.steel, fontSize: 14, marginTop: 9, lineHeight: 21 },
 
-  label: { color: "#D7D7DA", fontSize: 13, fontWeight: "500", marginBottom: 8 },
+  label: { color: colors.silver, fontSize: 13, fontWeight: "500", marginBottom: 8 },
   input: {
     width: "100%",
     height: 52,
-    backgroundColor: "#151518",
+    backgroundColor: colors.onyxRaised,
     borderWidth: 1,
-    borderColor: "#29292D",
+    borderColor: colors.hairline,
     borderRadius: 13,
     paddingHorizontal: 15,
-    color: "#FFFFFF",
+    color: colors.chrome,
     fontSize: 15,
     marginBottom: 18,
     outlineStyle: "none",
@@ -300,10 +331,10 @@ const styles = StyleSheet.create({
     width: 44,
     height: 54,
     borderRadius: 12,
-    backgroundColor: "#151518",
+    backgroundColor: colors.onyxRaised,
     borderWidth: 1,
-    borderColor: "#29292D",
-    color: "#FFFFFF",
+    borderColor: colors.hairline,
+    color: colors.chrome,
     fontSize: 20,
     fontWeight: "700",
     textAlign: "center",
@@ -312,12 +343,16 @@ const styles = StyleSheet.create({
   primaryButton: {
     height: 52,
     borderRadius: 13,
-    backgroundColor: "#FFFFFF",
+    backgroundColor: colors.chrome,
     alignItems: "center",
     justifyContent: "center",
     marginTop: 4,
   },
-  primaryButtonText: { color: "#09090B", fontSize: 15, fontWeight: "700" },
+  primaryButtonText: { color: colors.void, fontSize: 15, fontWeight: "700" },
   buttonPressed: { opacity: 0.7 },
   buttonDisabled: { opacity: 0.5 },
+
+  resendRow: { alignItems: "center", marginTop: 18 },
+  resendText: { color: colors.steel, fontSize: 13 },
+  resendLink: { color: colors.chrome, fontSize: 13, fontWeight: "600" },
 });

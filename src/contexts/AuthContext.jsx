@@ -8,18 +8,31 @@ import { createContext, useContext, useEffect, useState } from "react";
 
 const AuthContext = createContext(null);
 
+// Backend responses aren't always shaped identically (some endpoints wrap
+// the user under a `user` key, name may come back as `fullName`/`username`),
+// so normalize whatever we get into one shape the UI can rely on.
+function normalizeUser(raw) {
+  if (!raw) return raw;
+  const source = raw.user ?? raw;
+
+  const name =
+    source.name ||
+    source.fullName ||
+    source.full_name ||
+    source.username ||
+    (source.email ? source.email.split("@")[0] : null);
+
+  return { ...source, name: name || source.name };
+}
+
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [token, setAuthToken] = useState(null);
   const [loading, setLoading] = useState(true);
 
   const restoreSession = async () => {
-    console.log("Checking authentication...");
-
     try {
       const storedToken = await getToken();
-
-      console.log("Stored token:", storedToken ? "Token found" : "No token");
 
       if (!storedToken) {
         setAuthToken(null);
@@ -28,8 +41,6 @@ export function AuthProvider({ children }) {
       }
 
       const API_URL = process.env.EXPO_PUBLIC_API_URL;
-
-      console.log("Calling:", `${API_URL}/auth/check`);
 
       const response = await fetch(`${API_URL}/auth/check`, {
         method: "GET",
@@ -40,11 +51,10 @@ export function AuthProvider({ children }) {
         },
       });
 
-      console.log("Auth check status:", response.status);
-
       if (!response.ok) {
-        console.log("Stored token is invalid");
-
+        // Covers both an invalid token and a not-yet-verified account
+        // (/auth/check returns 403 EMAIL_NOT_VERIFIED for the latter) —
+        // either way there's no valid session to restore.
         await removeToken();
 
         setAuthToken(null);
@@ -55,10 +65,8 @@ export function AuthProvider({ children }) {
 
       const userData = await response.json();
 
-      console.log("User authenticated:", userData);
-
       setAuthToken(storedToken);
-      setUser(userData);
+      setUser(normalizeUser(userData));
     } catch (error) {
       console.error("Session restore failed:", error);
 
@@ -79,8 +87,9 @@ export function AuthProvider({ children }) {
     restoreSession();
   }, []);
 
-  async function googleLogin(userData) {
-    console.log(userData);
+  // `credential` is a Google Identity Services credential or a Firebase ID
+  // token; the backend verifies it and takes the email from it.
+  async function googleLogin(credential) {
     const response = await fetch(
       `${process.env.EXPO_PUBLIC_API_URL}/login/google`,
       {
@@ -91,9 +100,7 @@ export function AuthProvider({ children }) {
           "Content-Type": "application/json",
         },
 
-        body: JSON.stringify({
-          EmailID: userData.email,
-        }),
+        body: JSON.stringify({ credential }),
       },
     );
 
@@ -102,9 +109,44 @@ export function AuthProvider({ children }) {
     if (!response.ok) {
       throw new Error(data.message || "Google login failed");
     }
-    setUser(data.user);
 
     return data;
+  }
+
+  async function appleLogin({ identityToken, appleUserId, email, name }) {
+    const response = await fetch(
+      `${process.env.EXPO_PUBLIC_API_URL}/login/apple`,
+      {
+        method: "POST",
+
+        credentials: "include",
+        headers: {
+          "Content-Type": "application/json",
+        },
+
+        body: JSON.stringify({
+          identityToken,
+          appleUserId,
+          EmailID: email,
+          name,
+        }),
+      },
+    );
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      throw new Error(data.message || "Apple login failed");
+    }
+
+    return data;
+  }
+
+  // Stores a session already established elsewhere (email/password fetch,
+  // Google, Apple) without triggering another network call.
+  function setSession(sessionUser, sessionToken) {
+    setAuthToken(sessionToken);
+    setUser(normalizeUser(sessionUser));
   }
 
   async function login(email, password) {
@@ -133,7 +175,7 @@ export function AuthProvider({ children }) {
     await saveToken(data.token);
 
     setAuthToken(data.token);
-    setUser(data.user);
+    setUser(normalizeUser(data.user));
 
     return data;
   }
@@ -156,6 +198,9 @@ export function AuthProvider({ children }) {
         login,
         logout,
         googleLogin,
+        appleLogin,
+        setSession,
+        refreshSession: restoreSession,
         isLoggedIn: !!user,
       }}
     >

@@ -1,61 +1,58 @@
+import {
+  GoogleSignin,
+  statusCodes,
+} from "@react-native-google-signin/google-signin";
+import * as AppleAuthentication from "expo-apple-authentication";
 import { useRouter } from "expo-router";
 import { jwtDecode } from "jwt-decode";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
-    KeyboardAvoidingView,
-    Platform,
-    Pressable,
-    SafeAreaView,
-    StyleSheet,
-    Text,
-    TextInput,
-    View,
+  KeyboardAvoidingView,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
+import PasswordInput from "../../components/PasswordInput";
 import { useAuth } from "../../contexts/AuthContext";
+import { useTheme } from "../../contexts/ThemeContext";
 import { useToast } from "../../contexts/ToastContext";
-import { auth, provider, signInWithPopup } from "../../services/fireBase";
+import {
+  GoogleAuthProvider,
+  auth,
+  provider,
+  signInWithCredential,
+  signInWithPopup,
+} from "../../services/fireBase";
 import { setToken } from "../../services/storage";
 
 export default function Login() {
   const router = useRouter();
+  const { colors } = useTheme();
+  const styles = useMemo(() => getStyles(colors), [colors]);
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
+  const [socialLoading, setSocialLoading] = useState(null);
   const { addToast } = useToast();
-  const { login, googleLogin } = useAuth();
+  const { googleLogin, appleLogin, setSession } = useAuth();
 
-  const completeLogin = async ({
-    token,
+  const finishLogin = async (
     user,
+    token,
     successMessage = "Login successful",
-  }) => {
-    try {
-      if (!token || !user) {
-        addToast("Invalid login response", "warning");
-        return false;
-      }
-
-      const userData = {
-        email: user.email || user.EmailID,
-        name: user.name || user.username || user.displayName,
-      };
-
-      await setToken(token);
-
-      login(userData);
-
-      addToast(successMessage, "success");
-
-      router.replace("/");
-
-      return true;
-    } catch (error) {
-      console.error("Authentication completion error:", error);
-      addToast("Unable to save login session", "error");
-      return false;
-    }
+  ) => {
+    await setToken(token);
+    setSession(user, token);
+    addToast(successMessage, "success");
+    router.replace("/");
   };
+
   const handleSignIn = async () => {
     try {
       setLoading(true);
@@ -66,29 +63,39 @@ export default function Login() {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          email,
-          password,
+          EmailID: email,
+          pass: password,
         }),
       });
 
       const data = await response.json();
 
-      if (!response.ok || !data.token || !data.user) {
+      if (!response.ok) {
+        if (data.code === "EMAIL_NOT_VERIFIED") {
+          router.push({
+            pathname: "/verify-email",
+            params: { email, reason: "login" },
+          });
+          return;
+        }
         addToast(data.message || "Invalid email or password", "error");
         return;
       }
 
-      await setToken(data.token);
+      if (!data.token || !data.user) {
+        addToast(data.message || "Invalid email or password", "error");
+        return;
+      }
 
-      login(data.user);
-
-      addToast("Login successful", "success");
-
-      router.replace("/");
+      await finishLogin(data.user, data.token);
     } catch (error) {
       console.error("Login failed:", error);
+      addToast("Something went wrong. Please try again.", "error");
+    } finally {
+      setLoading(false);
     }
   };
+
   const handleCredentialResponse = async (response) => {
     try {
       if (!response?.credential) {
@@ -99,21 +106,29 @@ export default function Login() {
 
       const googleUser = jwtDecode(response.credential);
 
-      await setToken(response.credential);
-
       const userData = {
         email: googleUser?.email,
         name: googleUser?.name,
       };
 
-      addToast("Login successful", "success");
+      const data = await googleLogin(response.credential);
+
+      await finishLogin(
+        data?.user ?? userData,
+        data?.token ?? response.credential,
+      );
     } catch (error) {
       console.error("Google credential error:", error);
 
       addToast("Google login failed", "error");
     }
   };
+
+  // Google Identity Services (One Tap) is a web-only script; it must not
+  // run on native, where `window`/`document` are not the browser globals.
   useEffect(() => {
+    if (Platform.OS !== "web") return;
+
     if (window.google?.accounts?.id) {
       window.google.accounts.id.initialize({
         client_id:
@@ -163,51 +178,128 @@ export default function Login() {
       }
     }
   }, []);
+
+  // Native Google Sign-In needs to be configured once before GoogleSignin.signIn() is called.
+  useEffect(() => {
+    if (Platform.OS === "web") return;
+
+    GoogleSignin.configure({
+      webClientId: process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID,
+      offlineAccess: false,
+      scopes: ["profile", "email"],
+    });
+  }, []);
+
   const handleSignUp = () => {
     router.push("/signup");
   };
 
   const handleGoogleSignIn = async () => {
     try {
-      //   isLoading();
+      setSocialLoading("google");
 
-      const result = await signInWithPopup(auth, provider);
+      let firebaseUser;
 
-      const firebaseUser = result?.user;
+      if (Platform.OS === "web") {
+        const result = await signInWithPopup(auth, provider);
+        firebaseUser = result?.user;
+      } else {
+        await GoogleSignin.hasPlayServices({
+          showPlayServicesUpdateDialog: true,
+        });
+
+        const signInResult = await GoogleSignin.signIn();
+        const idToken = signInResult?.data?.idToken ?? signInResult?.idToken;
+
+        if (!idToken) {
+          addToast("Google sign-in failed", "error");
+          return;
+        }
+
+        const credential = GoogleAuthProvider.credential(idToken);
+        const result = await signInWithCredential(auth, credential);
+        firebaseUser = result?.user;
+      }
 
       if (!firebaseUser) {
         addToast("Google login failed", "error");
 
         return;
       }
-      console.log("Firebase user:", firebaseUser);
 
-      const token = await firebaseUser.getIdToken();
+      if (!firebaseUser.email) {
+        console.error("Google sign-in returned no email:", firebaseUser);
+        addToast("Your Google account has no email to sign in with", "error");
 
-      const user = {
-        email: firebaseUser.email,
-        displayName: firebaseUser.displayName,
-      };
-      console.log("User data:", user);
+        return;
+      }
+
+      const idToken = await firebaseUser.getIdToken();
 
       const userData = {
-        email: user.email || user.EmailID,
-        name: user.name || user.username || user.displayName,
+        email: firebaseUser.email,
+        name: firebaseUser.displayName,
       };
 
-      await setToken(token);
+      const data = await googleLogin(idToken);
 
-      googleLogin(userData);
-      const successMessage = "Login Successful";
-      addToast(successMessage, "success");
-
-      router.replace("/");
-
-      return true;
+      await finishLogin(data?.user ?? userData, data?.token ?? idToken);
     } catch (error) {
+      if (error?.code === statusCodes.SIGN_IN_CANCELLED) return;
+
       console.error("Google sign-in error:", error);
 
       addToast("Google sign-in failed", "error");
+    } finally {
+      setSocialLoading(null);
+    }
+  };
+
+  const handleAppleSignIn = async () => {
+    try {
+      setSocialLoading("apple");
+
+      const credential = await AppleAuthentication.signInAsync({
+        requestedScopes: [
+          AppleAuthentication.AppleAuthenticationScope.FULL_NAME,
+          AppleAuthentication.AppleAuthenticationScope.EMAIL,
+        ],
+      });
+
+      if (!credential.identityToken) {
+        addToast("Apple sign-in failed", "error");
+
+        return;
+      }
+
+      // Apple only returns name/email on the FIRST authorization for a given
+      // app; later sign-ins omit both, so the backend must key the account
+      // off `appleUserId` (credential.user), not email.
+      const name = credential.fullName
+        ? [credential.fullName.givenName, credential.fullName.familyName]
+            .filter(Boolean)
+            .join(" ")
+        : undefined;
+
+      const data = await appleLogin({
+        identityToken: credential.identityToken,
+        appleUserId: credential.user,
+        email: credential.email,
+        name,
+      });
+
+      await finishLogin(
+        data?.user ?? { email: credential.email, name },
+        data?.token ?? credential.identityToken,
+      );
+    } catch (error) {
+      if (error.code === "ERR_REQUEST_CANCELED") return;
+
+      console.error("Apple sign-in error:", error);
+
+      addToast("Apple sign-in failed", "error");
+    } finally {
+      setSocialLoading(null);
     }
   };
 
@@ -217,10 +309,12 @@ export default function Login() {
 
   return (
     <SafeAreaView style={styles.safeArea}>
-      <KeyboardAvoidingView
-        style={styles.container}
-        behavior={Platform.OS === "ios" ? "padding" : undefined}
-      >
+      <KeyboardAvoidingView style={{ flex: 1 }} behavior="padding">
+        <ScrollView
+          contentContainerStyle={styles.container}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+        >
         {/* Close */}
         <Pressable style={styles.closeButton} onPress={() => router.back()}>
           <Text style={styles.closeText}>×</Text>
@@ -243,7 +337,7 @@ export default function Login() {
             value={email}
             onChangeText={setEmail}
             placeholder="Enter your email"
-            placeholderTextColor="#777"
+            placeholderTextColor={colors.steel}
             autoCapitalize="none"
             keyboardType="email-address"
             style={styles.input}
@@ -251,14 +345,20 @@ export default function Login() {
 
           <Text style={styles.label}>Password</Text>
 
-          <TextInput
+          <PasswordInput
+            inputStyle={styles.input}
             value={password}
             onChangeText={setPassword}
             placeholder="Enter your password"
-            placeholderTextColor="#777"
-            secureTextEntry
-            style={styles.input}
+            placeholderTextColor={colors.steel}
           />
+
+          <Pressable
+            style={styles.forgotPasswordRow}
+            onPress={() => router.push("/forgot-password")}
+          >
+            <Text style={styles.forgotPasswordText}>Forgot Password?</Text>
+          </Pressable>
 
           <Pressable
             style={({ pressed }) => [
@@ -298,15 +398,35 @@ export default function Login() {
             style={({ pressed }) => [
               styles.socialButton,
               pressed && styles.buttonPressed,
+              socialLoading === "google" && styles.buttonDisabled,
             ]}
             onPress={handleGoogleSignIn}
+            disabled={!!socialLoading}
           >
             <View style={styles.googleIcon}>
               <Text style={styles.googleG}>G</Text>
             </View>
 
-            <Text style={styles.socialText}>Continue with Google</Text>
+            <Text style={styles.socialText}>
+              {socialLoading === "google"
+                ? "Signing in..."
+                : "Continue with Google"}
+            </Text>
           </Pressable>
+
+          {Platform.OS === "ios" && (
+            <AppleAuthentication.AppleAuthenticationButton
+              buttonType={
+                AppleAuthentication.AppleAuthenticationButtonType.SIGN_IN
+              }
+              buttonStyle={
+                AppleAuthentication.AppleAuthenticationButtonStyle.WHITE
+              }
+              cornerRadius={13}
+              style={styles.appleButton}
+              onPress={handleAppleSignIn}
+            />
+          )}
 
           <Pressable
             style={({ pressed }) => [
@@ -325,20 +445,24 @@ export default function Login() {
         <Text style={styles.footer}>
           By continuing, you agree to our Terms and Privacy Policy.
         </Text>
+        </ScrollView>
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }
 
-const styles = StyleSheet.create({
+const getStyles = (colors) =>
+  StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: "#09090B",
+    backgroundColor: colors.void,
   },
 
+  // contentContainerStyle for a ScrollView, not a flex box.
   container: {
-    flex: 1,
+    flexGrow: 1,
     paddingHorizontal: 24,
+    paddingBottom: 24,
     maxWidth: 500,
     width: "100%",
     alignSelf: "center",
@@ -359,7 +483,7 @@ const styles = StyleSheet.create({
   },
 
   closeText: {
-    color: "#FFFFFF",
+    color: colors.chrome,
     fontSize: 28,
     fontWeight: "300",
     lineHeight: 30,
@@ -371,14 +495,14 @@ const styles = StyleSheet.create({
   },
 
   title: {
-    color: "#FFFFFF",
+    color: colors.chrome,
     fontSize: 32,
     fontWeight: "700",
     letterSpacing: -0.7,
   },
 
   subtitle: {
-    color: "#8E8E93",
+    color: colors.steel,
     fontSize: 15,
     marginTop: 9,
     lineHeight: 22,
@@ -389,7 +513,7 @@ const styles = StyleSheet.create({
   },
 
   label: {
-    color: "#D7D7DA",
+    color: colors.silver,
     fontSize: 13,
     fontWeight: "500",
     marginBottom: 8,
@@ -399,15 +523,15 @@ const styles = StyleSheet.create({
     width: "100%",
     height: 52,
 
-    backgroundColor: "#151518",
+    backgroundColor: colors.onyxRaised,
 
     borderWidth: 1,
-    borderColor: "#29292D",
+    borderColor: colors.hairline,
     borderRadius: 13,
 
     paddingHorizontal: 15,
 
-    color: "#FFFFFF",
+    color: colors.chrome,
     fontSize: 15,
 
     marginBottom: 18,
@@ -415,12 +539,23 @@ const styles = StyleSheet.create({
     outlineStyle: "none",
   },
 
+  forgotPasswordRow: {
+    alignSelf: "flex-end",
+    marginBottom: 18,
+  },
+
+  forgotPasswordText: {
+    color: colors.steel,
+    fontSize: 13,
+    fontWeight: "500",
+  },
+
   signInButton: {
     height: 52,
 
     borderRadius: 13,
 
-    backgroundColor: "#FFFFFF",
+    backgroundColor: colors.chrome,
 
     alignItems: "center",
     justifyContent: "center",
@@ -429,7 +564,7 @@ const styles = StyleSheet.create({
   },
 
   signInText: {
-    color: "#09090B",
+    color: colors.void,
     fontSize: 15,
     fontWeight: "700",
   },
@@ -452,12 +587,12 @@ const styles = StyleSheet.create({
   },
 
   signupText: {
-    color: "#77777D",
+    color: colors.steel,
     fontSize: 14,
   },
 
   signupLink: {
-    color: "#FFFFFF",
+    color: colors.chrome,
     fontSize: 14,
     fontWeight: "600",
   },
@@ -472,11 +607,11 @@ const styles = StyleSheet.create({
   divider: {
     flex: 1,
     height: 1,
-    backgroundColor: "#252529",
+    backgroundColor: colors.hairline,
   },
 
   orText: {
-    color: "#66666C",
+    color: colors.steel,
     fontSize: 11,
     marginHorizontal: 14,
     fontWeight: "600",
@@ -491,10 +626,10 @@ const styles = StyleSheet.create({
 
     borderRadius: 13,
 
-    backgroundColor: "#151518",
+    backgroundColor: colors.onyxRaised,
 
     borderWidth: 1,
-    borderColor: "#29292D",
+    borderColor: colors.hairline,
 
     flexDirection: "row",
     alignItems: "center",
@@ -523,8 +658,13 @@ const styles = StyleSheet.create({
     fontWeight: "700",
   },
 
+  appleButton: {
+    height: 52,
+    width: "100%",
+  },
+
   twitterIcon: {
-    color: "#FFFFFF",
+    color: colors.chrome,
     fontSize: 21,
     fontWeight: "600",
   },

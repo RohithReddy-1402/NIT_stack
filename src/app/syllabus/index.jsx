@@ -1,50 +1,38 @@
-import DownloadOptionsSheet from "@/components/DownloadOptionsSheet";
-import { saveToLibrary } from "@/services/downloads";
+import {
+  SuggestionsDropdown,
+  useAutocomplete,
+  useDropdownAnchor,
+} from "@/components/SearchAutocomplete";
+import Skeleton from "@/components/Skeleton";
 import { BlurView } from "expo-blur";
-import { File, Paths } from "expo-file-system";
 import { LinearGradient } from "expo-linear-gradient";
 import { router } from "expo-router";
-import * as Sharing from "expo-sharing";
 import {
-    Check,
-    ChevronDown,
-    Download,
-    FileText,
-    KeyRound,
-    Loader2,
-    Lock,
-    Search,
-    X,
+  ChevronDown,
+  ExternalLink,
+  FileText,
+  KeyRound,
+  Lock,
+  Search,
+  X,
 } from "lucide-react-native";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-    FlatList,
-    Linking,
-    Modal,
-    Platform,
-    StyleSheet,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View,
+  FlatList,
+  Linking,
+  Modal,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
+import { useAuth } from "../../contexts/AuthContext";
+import { useTheme } from "../../contexts/ThemeContext";
 import { useToast } from "../../contexts/ToastContext";
-const getFileDownloadUrl = (paper) => paper?.fileUrl ?? paper?.pdfUrl ?? null;
-const getPaperId = (paper) =>
-  paper?.paper_id ?? paper?.id ?? paper?.["Course Code"];
 
-const colors = {
-  void: "#08080A",
-  chrome: "#F5F5F7",
-  silver: "#C9C9CE",
-  steel: "#8E8E93",
-  hairline: "rgba(255,255,255,0.14)",
-  hairlineDim: "rgba(255,255,255,0.07)",
-  glassFill: "rgba(255,255,255,0.05)",
-  glassFillRaised: "rgba(255,255,255,0.08)",
-  glossHi: "rgba(255,255,255,0.30)",
-  glossLo: "rgba(255,255,255,0.02)",
-};
+const OFFICIAL_SITE_URL = "https://www.nitkkr.ac.in";
 
 const SEMESTERS = [
   "Sem-1",
@@ -58,12 +46,10 @@ const SEMESTERS = [
 ];
 const ADDITIONAL_TABS = ["Sem", "Mid-1", "Mid-2"];
 
-export default function SyllabusScreen({
-  isLoggedIn,
-  user,
-  onLoginClick,
-  onLogout,
-}) {
+export default function SyllabusScreen() {
+  const { isLoggedIn } = useAuth();
+  const { colors, isDark } = useTheme();
+  const styles = useMemo(() => getStyles(colors), [colors]);
   const [activeTab, setActiveTab] = useState("all");
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedSemester, setSelectedSemester] = useState("all"); // locked, mirrors disabled <select> on web
@@ -71,106 +57,24 @@ export default function SyllabusScreen({
   const [selectedBranch, setSelectedBranch] = useState("all");
   const [selectedYear, setSelectedYear] = useState("all"); // dead state on web too (no Year control here) — kept for parity
   const [syllabusData, setSyllabusData] = useState([]);
-  const [avatarOpen, setAvatarOpen] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [branchModalOpen, setBranchModalOpen] = useState(false);
 
   const { addToast } = useToast();
   const searchRef = useRef(null);
-  const [sheetPaper, setSheetPaper] = useState(null);
-  const handleNav = () => router.push("Home");
+  const handleNav = () => router.push("/");
 
-  const pingDownloadCount = (paper) => {
-    fetch(
-      `${process.env.EXPO_PUBLIC_API_URL}/papers/${paper.paper_id}/downloadcount`,
-      {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          paper_id: paper.paper_id,
-          title: paper["Course Title"],
-          course_code: paper["Course Code"],
-        }),
-      },
-    ).catch(() => {});
-  };
-
-  const handleView = async (paper, onStatus) => {
-    const url = getFileDownloadUrl(paper);
-    if (!url) {
-      addToast("Download link not available for this paper.", "error");
-      return;
-    }
-    onStatus?.("loading");
-    try {
-      pingDownloadCount(paper);
-      await Linking.openURL(url);
-      addToast(
-        `${paper.title ?? paper["Course Title"]} opened.`,
-        "success",
-      );
-      onStatus?.("done");
-      setTimeout(() => onStatus?.("idle"), 1800);
-    } catch {
-      onStatus?.("idle");
-      addToast("Something went wrong opening that file.", "error");
-    }
-  };
-
-  const handleSaveInApp = async (paper, onStatus) => {
-    const url = getFileDownloadUrl(paper);
-    if (!url) {
-      addToast("Download link not available for this paper.", "error");
-      return;
-    }
-    onStatus?.("loading");
-    try {
-      pingDownloadCount(paper);
-      await saveToLibrary({
-        id: getPaperId(paper),
-        title: paper["Course Title"] ?? paper.title,
-        code: paper["Course Code"],
-        source: "syllabus",
-        remoteUrl: url,
-      });
-      addToast(
-        `${paper["Course Title"] ?? paper.title} saved to your library.`,
-        "success",
-      );
-      onStatus?.("done");
-      setTimeout(() => onStatus?.("idle"), 1800);
-    } catch {
-      onStatus?.("idle");
-      addToast("Couldn't save that file. Try again.", "error");
-    }
-  };
-
-  const handleSaveToDevice = async (paper, onStatus) => {
-    const url = getFileDownloadUrl(paper);
-    if (!url) {
-      addToast("Download link not available for this paper.", "error");
-      return;
-    }
-    onStatus?.("loading");
-    try {
-      pingDownloadCount(paper);
-      const destination = new File(
-        Paths.cache,
-        `${paper["Course Code"] ?? "syllabus"}.pdf`.replace(
-          /[^a-zA-Z0-9-_.]/g,
-          "_",
-        ),
-      );
-      const downloaded = await File.downloadFileAsync(url, destination);
-      if (await Sharing.isAvailableAsync()) {
-        await Sharing.shareAsync(downloaded.uri);
-      }
-      onStatus?.("done");
-      setTimeout(() => onStatus?.("idle"), 1800);
-    } catch {
-      onStatus?.("idle");
-      addToast("Couldn't download that file. Try again.", "error");
-    }
-  };
+  const {
+    open: suggestionsOpen,
+    setOpen: setSuggestionsOpen,
+    suggestions,
+  } = useAutocomplete({
+    items: syllabusData,
+    searchKeys: ["courseId", "title"],
+    value: searchQuery,
+  });
+  const { anchorRef, onAnchorLayout, dropdownTop, dropdownStyle } =
+    useDropdownAnchor(suggestionsOpen);
 
   const handleDisplay = (paper) => {
     if (!paper) {
@@ -184,38 +88,42 @@ export default function SyllabusScreen({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           paper_id: paper.paper_id,
-          title: paper["Course Title"],
-          courseId: paper["Course Code"],
+          title: paper.title,
+          courseId: paper.courseId,
         }),
       },
     ).catch(() => {});
-    router.push("SyllabusDetail", { route: paper.route });
+    if (paper.route) router.push(`/syllabus/${paper.route}`);
   };
 
-  const handleiconclick = () => setAvatarOpen((v) => !v);
+  const loadCatalog = useCallback(async () => {
+    setLoading(true);
+    try {
+      const response = await fetch(
+        `${process.env.EXPO_PUBLIC_API_URL}/api/syllabus`,
+      );
+      if (!response.ok) throw new Error(`HTTP error: ${response.status}`);
+      const result = await response.json();
+      const backendData = Array.isArray(result) ? result : (result.data ?? []);
+      setSyllabusData(
+        backendData.map((course) => ({
+          ...course,
+          downloads: course.downloadCount ?? 0,
+        })),
+      );
+    } catch (error) {
+      console.error("Failed to load syllabus catalog:", error);
+      setSyllabusData([]);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
 
   useEffect(() => {
     const t = setTimeout(() => searchRef.current?.focus(), 300);
-
-    async function loadDownloads() {
-      try {
-        const response = await fetch(
-          `${process.env.EXPO_PUBLIC_API_URL}/api/syllabus`,
-        );
-        if (!response.ok) throw new Error(`HTTP error: ${response.status}`);
-        const result = await response.json();
-        const backendData = Array.isArray(result)
-          ? result
-          : (result.data ?? []);
-
-        setSyllabusData(backendData);
-      } catch (error) {
-        console.error("Failed to load download counts:", error);
-      }
-    }
-    loadDownloads();
+    loadCatalog();
     return () => clearTimeout(t);
-  }, []);
+  }, [loadCatalog]);
 
   const normalize = (text = "") =>
     text
@@ -225,31 +133,37 @@ export default function SyllabusScreen({
   const normalizedSearch = normalize(searchQuery);
 
   const branches = useMemo(
-    () => [...new Set(syllabusData.flatMap((paper) => paper.Branches ?? []))],
+    () => [...new Set(syllabusData.flatMap((paper) => paper.branches ?? []))],
     [syllabusData],
   );
 
-  let filteredPapers = syllabusData.filter((paper) => {
-    const matchesSearch =
-      normalize(paper["Course Code"]).includes(normalizedSearch) ||
-      normalize(paper["Course Title"]).includes(normalizedSearch);
-    const matchesBranch =
-      selectedBranch === "all" || paper.Branches?.includes(selectedBranch);
+  // Same reasoning as the papers screen: filtering the whole catalog on every
+  // render (every keystroke, every unrelated state change) was unnecessary
+  // work that contributed to input lag. Memoize against the real inputs.
+  const filteredPapers = useMemo(() => {
+    let result = syllabusData.filter((paper) => {
+      const matchesSearch =
+        normalize(paper.courseId).includes(normalizedSearch) ||
+        normalize(paper.title).includes(normalizedSearch);
+      const matchesBranch =
+        selectedBranch === "all" || paper.branches?.includes(selectedBranch);
 
-    if (activeTab === "all") return matchesSearch && matchesBranch;
-    if (activeTab === "recent") return matchesSearch && matchesBranch;
-    if (activeTab === "popular") return matchesSearch && matchesBranch;
+      if (activeTab === "all") return matchesSearch && matchesBranch;
+      if (activeTab === "recent") return matchesSearch && matchesBranch;
+      if (activeTab === "popular") return matchesSearch && matchesBranch;
 
-    return (
-      paper["Course Title"].toLowerCase() === activeTab.toLowerCase() &&
-      matchesSearch &&
-      matchesBranch
-    );
-  });
+      return (
+        paper.title.toLowerCase() === activeTab.toLowerCase() &&
+        matchesSearch &&
+        matchesBranch
+      );
+    });
 
-  if (activeTab === "popular")
-    filteredPapers = filteredPapers.sort((a, b) => b.downloads - a.downloads);
-  if (activeTab === "recent") filteredPapers = [...filteredPapers].reverse();
+    if (activeTab === "popular")
+      result = result.sort((a, b) => b.downloads - a.downloads);
+    if (activeTab === "recent") result = [...result].reverse();
+    return result;
+  }, [syllabusData, normalizedSearch, selectedBranch, activeTab]);
 
   const tabs = [
     { key: "all", label: `All Papers (${syllabusData.length})` },
@@ -257,8 +171,25 @@ export default function SyllabusScreen({
     { key: "popular", label: "Popular" },
   ];
 
+  if (loading && !syllabusData.length) {
+    return (
+      <SafeAreaView style={styles.screen} edges={["top"]}>
+        <BlurView intensity={40} tint={isDark ? "dark" : "light"} style={styles.topBar}>
+          <TouchableOpacity onPress={handleNav} activeOpacity={0.8}>
+            <Text style={styles.brand}>NIT KKR PYQs</Text>
+          </TouchableOpacity>
+        </BlurView>
+        <View style={styles.listContent}>
+          {Array.from({ length: 6 }).map((_, i) => (
+            <SyllabusCardSkeleton key={i} />
+          ))}
+        </View>
+      </SafeAreaView>
+    );
+  }
+
   return (
-    <View style={styles.screen}>
+    <SafeAreaView style={styles.screen} edges={["top"]}>
       <LinearGradient
         colors={["rgba(255,255,255,0.10)", "transparent"]}
         style={styles.blobTop}
@@ -270,56 +201,14 @@ export default function SyllabusScreen({
         pointerEvents="none"
       />
 
-      <BlurView intensity={40} tint="dark" style={styles.topBar}>
+      <BlurView intensity={40} tint={isDark ? "dark" : "light"} style={styles.topBar}>
         <TouchableOpacity onPress={handleNav} activeOpacity={0.8}>
           <Text style={styles.brand}>NIT KKR PYQs</Text>
         </TouchableOpacity>
 
-        {isLoggedIn ? (
-          <View>
-            <TouchableOpacity
-              onPress={handleiconclick}
-              style={styles.avatarBtn}
-              activeOpacity={0.85}
-            >
-              <Text style={styles.avatarInitial}>
-                {(user?.name || "U").charAt(0).toUpperCase()}
-              </Text>
-            </TouchableOpacity>
-            {avatarOpen && (
-              <BlurView intensity={60} tint="dark" style={styles.avatarPanel}>
-                <Text style={styles.avatarName}>{user?.name}</Text>
-                <Text style={styles.avatarEmail} numberOfLines={1}>
-                  {user?.email}
-                </Text>
-                <View style={styles.hr} />
-                <TouchableOpacity style={styles.avatarRow}>
-                  <Text style={styles.avatarRowText}>Dashboard</Text>
-                </TouchableOpacity>
-                <TouchableOpacity style={styles.avatarRow}>
-                  <Text style={styles.avatarRowText}>Settings</Text>
-                </TouchableOpacity>
-                <TouchableOpacity style={styles.avatarRow}>
-                  <Text style={styles.avatarRowText}>Earnings</Text>
-                </TouchableOpacity>
-                <View style={styles.hr} />
-                <TouchableOpacity
-                  style={styles.avatarRow}
-                  onPress={() => {
-                    setAvatarOpen(false);
-                    onLogout();
-                  }}
-                >
-                  <Text style={[styles.avatarRowText, { color: "#FF453A" }]}>
-                    Sign out
-                  </Text>
-                </TouchableOpacity>
-              </BlurView>
-            )}
-          </View>
-        ) : (
+        {!isLoggedIn && (
           <TouchableOpacity
-            onPress={onLoginClick}
+            onPress={() => router.push("login")}
             style={styles.loginBtn}
             activeOpacity={0.85}
           >
@@ -331,33 +220,61 @@ export default function SyllabusScreen({
 
       <FlatList
         data={filteredPapers.slice(0, 40)}
-        keyExtractor={(paper) => String(paper.id ?? paper["Course Code"])}
+        keyExtractor={(paper) => String(paper.id ?? paper.courseId)}
         renderItem={({ item }) => (
-          <SyllabusCard
-            paper={item}
-            onOpen={handleDisplay}
-            onOpenSheet={setSheetPaper}
-          />
+          <SyllabusCard paper={item} onOpen={handleDisplay} />
         )}
         contentContainerStyle={styles.listContent}
         ListHeaderComponent={
-          <View>
-            {/* Search — frosted glass pill */}
-            <BlurView intensity={35} tint="dark" style={styles.searchWrap}>
-              <Search
-                size={17}
-                color={colors.steel}
-                style={{ marginRight: 10 }}
-              />
-              <TextInput
-                ref={searchRef}
-                value={searchQuery}
-                onChangeText={setSearchQuery}
-                placeholder="Search Syllabus... (Name, Subject Code)"
-                placeholderTextColor={colors.steel}
-                style={styles.searchInput}
-              />
-            </BlurView>
+          <View style={styles.headerRaised}>
+            {/* Search — frosted glass pill (dropdown lives outside the
+                pill's own overflow:hidden so it isn't clipped) */}
+            <View
+              ref={anchorRef}
+              collapsable={false}
+              onLayout={onAnchorLayout}
+              style={styles.searchOuterWrap}
+            >
+              <BlurView intensity={35} tint={isDark ? "dark" : "light"} style={styles.searchWrap}>
+                <Search
+                  size={17}
+                  color={colors.steel}
+                  style={{ marginRight: 10 }}
+                />
+                <TextInput
+                  ref={searchRef}
+                  value={searchQuery}
+                  onChangeText={(text) => {
+                    setSearchQuery(text);
+                    setSuggestionsOpen(true);
+                  }}
+                  onFocus={() => setSuggestionsOpen(true)}
+                  onBlur={() =>
+                    setTimeout(() => setSuggestionsOpen(false), 150)
+                  }
+                  placeholder="Search Syllabus... (Name, Subject Code)"
+                  placeholderTextColor={colors.steel}
+                  style={styles.searchInput}
+                />
+              </BlurView>
+            </View>
+
+            <Text style={styles.disclaimerText}>
+              Not affiliated with, endorsed by, or officially connected with
+              NIT Kurukshetra or any Government of India / State Government
+              department. Curriculum shown is compiled from the official NIT
+              Kurukshetra website for informational purposes only.
+            </Text>
+            <TouchableOpacity
+              style={styles.sourceRow}
+              activeOpacity={0.7}
+              onPress={() => Linking.openURL(OFFICIAL_SITE_URL)}
+            >
+              <ExternalLink size={12} color={colors.accent} strokeWidth={2} />
+              <Text style={styles.sourceText}>
+                Official source: nitkkr.ac.in
+              </Text>
+            </TouchableOpacity>
 
             {/* Filters — Semester & Type are locked, same as the disabled <select>s on web */}
             <View style={styles.filterRow}>
@@ -386,7 +303,7 @@ export default function SyllabusScreen({
                 >
                   {activeTab === item.key ? (
                     <LinearGradient
-                      colors={[colors.chrome, "#D8D8DD"]}
+                      colors={[colors.chrome, colors.chromeSecondary]}
                       start={{ x: 0, y: 0 }}
                       end={{ x: 1, y: 1 }}
                       style={styles.tabChipActive}
@@ -394,7 +311,7 @@ export default function SyllabusScreen({
                       <Text style={styles.tabChipTextActive}>{item.label}</Text>
                     </LinearGradient>
                   ) : (
-                    <BlurView intensity={30} tint="dark" style={styles.tabChip}>
+                    <BlurView intensity={30} tint={isDark ? "dark" : "light"} style={styles.tabChip}>
                       <Text style={styles.tabChipText}>{item.label}</Text>
                     </BlurView>
                   )}
@@ -431,11 +348,33 @@ export default function SyllabusScreen({
             <FileText size={44} color={colors.steel} strokeWidth={1.5} />
             <Text style={styles.emptyTitle}>No Syllabus content found</Text>
             <Text style={styles.emptySubtitle}>
-              Try adjusting your search or filter to find what you&apos;re looking
-              for.
+              Try adjusting your search or filter to find what you&apos;re
+              looking for.
             </Text>
           </View>
         }
+      />
+
+      {/* Sibling of the FlatList on purpose, not nested inside its
+          ListHeaderComponent — see the same note in papers/index.jsx. RN's
+          virtualized list wraps the header and each row as separate sibling
+          cells, so an elevated view living inside the header could still
+          lose the Android stacking fight against row cells below it,
+          hiding suggestions behind course cards and stealing their taps. */}
+      <SuggestionsDropdown
+        visible={suggestionsOpen}
+        suggestions={suggestions}
+        getLabel={(course) => course.title}
+        getSublabel={(course) => course.courseId}
+        getKey={(course) => String(course.id ?? course.courseId)}
+        onSelect={(course) => {
+          setSuggestionsOpen(false);
+          setSearchQuery(course.courseId);
+          handleDisplay(course);
+        }}
+        onDismiss={() => setSuggestionsOpen(false)}
+        topOffset={dropdownTop ?? 202}
+        style={dropdownStyle}
       />
 
       <Modal
@@ -449,7 +388,7 @@ export default function SyllabusScreen({
           activeOpacity={1}
           onPress={() => setBranchModalOpen(false)}
         >
-          <BlurView intensity={70} tint="dark" style={styles.sheet}>
+          <BlurView intensity={70} tint={isDark ? "dark" : "light"} style={styles.sheet}>
             <View style={styles.sheetHandle} />
             <Text style={styles.sheetTitle}>Select branch</Text>
             <FlatList
@@ -473,63 +412,59 @@ export default function SyllabusScreen({
           </BlurView>
         </TouchableOpacity>
       </Modal>
-
-      <DownloadOptionsSheet
-        visible={!!sheetPaper}
-        title={sheetPaper?.["Course Title"] ?? ""}
-        subtitle={sheetPaper?.["Course Code"] ?? ""}
-        onClose={() => setSheetPaper(null)}
-        onView={() => sheetPaper && handleView(sheetPaper, sheetPaper.setStatus)}
-        onSaveInApp={() =>
-          sheetPaper && handleSaveInApp(sheetPaper, sheetPaper.setStatus)
-        }
-        onSaveToDevice={() =>
-          sheetPaper && handleSaveToDevice(sheetPaper, sheetPaper.setStatus)
-        }
-      />
-    </View>
+    </SafeAreaView>
   );
 }
 
-const FilterPill = ({ label, onPress }) => (
-  <TouchableOpacity onPress={onPress} activeOpacity={0.8} style={{ flex: 1 }}>
-    <BlurView intensity={30} tint="dark" style={styles.filterPill}>
-      <Text style={styles.filterPillText} numberOfLines={1}>
-        {label}
-      </Text>
-      <ChevronDown size={14} color={colors.steel} />
-    </BlurView>
-  </TouchableOpacity>
-);
+const FilterPill = ({ label, onPress }) => {
+  const { colors, isDark } = useTheme();
+  const styles = useMemo(() => getStyles(colors), [colors]);
+  return (
+    <TouchableOpacity onPress={onPress} activeOpacity={0.8} style={{ flex: 1 }}>
+      <BlurView intensity={30} tint={isDark ? "dark" : "light"} style={styles.filterPill}>
+        <Text style={styles.filterPillText} numberOfLines={1}>
+          {label}
+        </Text>
+        <ChevronDown size={14} color={colors.steel} />
+      </BlurView>
+    </TouchableOpacity>
+  );
+};
 
 // Semester / Type are `disabled` on the web version — rendered as
 // non-interactive glass with a lock glyph instead of a chevron.
-const LockedPill = ({ label }) => (
-  <View style={[styles.filterPill, styles.filterPillLocked]}>
-    <Text style={[styles.filterPillText, { opacity: 0.5 }]} numberOfLines={1}>
-      {label}
-    </Text>
-    <Lock size={12} color={colors.steel} />
-  </View>
-);
+const LockedPill = ({ label }) => {
+  const { colors } = useTheme();
+  const styles = useMemo(() => getStyles(colors), [colors]);
+  return (
+    <View style={[styles.filterPill, styles.filterPillLocked]}>
+      <Text style={[styles.filterPillText, { opacity: 0.5 }]} numberOfLines={1}>
+        {label}
+      </Text>
+      <Lock size={12} color={colors.steel} />
+    </View>
+  );
+};
 
-const ClearablePill = ({ label, onClear }) => (
-  <View style={styles.clearablePill}>
-    <Text style={styles.clearablePillText}>{label}</Text>
-    <TouchableOpacity
-      onPress={onClear}
-      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-    >
-      <X size={12} color={colors.chrome} />
-    </TouchableOpacity>
-  </View>
-);
+const ClearablePill = ({ label, onClear }) => {
+  const { colors } = useTheme();
+  const styles = useMemo(() => getStyles(colors), [colors]);
+  return (
+    <View style={styles.clearablePill}>
+      <Text style={styles.clearablePillText}>{label}</Text>
+      <TouchableOpacity
+        onPress={onClear}
+        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+      >
+        <X size={12} color={colors.chrome} />
+      </TouchableOpacity>
+    </View>
+  );
+};
 
-// Rebuilt <DownloadButton /> — same idle/loading/done cycle, same icons
-// (Download, Loader2, Check) the web file imported.
-const SyllabusCard = ({ paper, onOpen, onOpenSheet }) => {
-  const [status, setStatus] = useState("idle");
-
+const SyllabusCard = ({ paper, onOpen }) => {
+  const { colors } = useTheme();
+  const styles = useMemo(() => getStyles(colors), [colors]);
   return (
     <TouchableOpacity
       style={styles.cardWrap}
@@ -550,10 +485,10 @@ const SyllabusCard = ({ paper, onOpen, onOpenSheet }) => {
           </View>
           <View style={{ flex: 1, marginLeft: 14 }}>
             <Text style={styles.cardMeta} numberOfLines={1}>
-              {paper?.["Course Code"]} · {paper?.Branches?.join(", ")}
+              {paper?.courseId} · {paper?.branches?.join(", ")}
             </Text>
             <Text style={styles.cardTitle} numberOfLines={2}>
-              {paper?.["Course Title"]}
+              {paper?.title}
             </Text>
           </View>
         </View>
@@ -569,315 +504,318 @@ const SyllabusCard = ({ paper, onOpen, onOpenSheet }) => {
               {paper.downloads ?? 0} downloads
             </Text>
           </View>
-
-          <TouchableOpacity
-            style={styles.downloadBtn}
-            activeOpacity={0.85}
-            onPress={() => onOpenSheet({ ...paper, setStatus })}
-          >
-            {status === "loading" ? (
-              <Loader2 size={16} color={colors.void} />
-            ) : status === "done" ? (
-              <Check size={16} color={colors.void} />
-            ) : (
-              <Download size={16} color={colors.void} />
-            )}
-          </TouchableOpacity>
         </View>
       </View>
     </TouchableOpacity>
   );
 };
 
-const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: colors.void },
+const SyllabusCardSkeleton = () => {
+  const { colors } = useTheme();
+  const styles = useMemo(() => getStyles(colors), [colors]);
+  return (
+    <View style={styles.cardWrap}>
+      <View style={styles.card}>
+        <View style={styles.cardTopRow}>
+          <Skeleton style={styles.cardIconBox} />
+          <View style={{ flex: 1, marginLeft: 14 }}>
+            <Skeleton style={{ width: "50%", height: 11, marginBottom: 8 }} />
+            <Skeleton style={{ width: "85%", height: 15 }} />
+          </View>
+        </View>
 
-  blobTop: {
-    position: "absolute",
-    top: -120,
-    right: -80,
-    width: 320,
-    height: 320,
-    borderRadius: 200,
-  },
-  blobBottom: {
-    position: "absolute",
-    bottom: -140,
-    left: -100,
-    width: 340,
-    height: 340,
-    borderRadius: 200,
-  },
+        <View style={styles.cardFooter}>
+          <View style={styles.footerLeft}>
+            <Skeleton style={{ width: 54, height: 20, borderRadius: 20 }} />
+            <Skeleton style={{ width: 70, height: 11 }} />
+          </View>
+        </View>
+      </View>
+    </View>
+  );
+};
 
-  topBar: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    paddingHorizontal: 20,
-    paddingTop: Platform.OS === "ios" ? 56 : 24,
-    paddingBottom: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.hairlineDim,
-    overflow: "hidden",
-  },
-  brand: {
-    color: colors.chrome,
-    fontSize: 20,
-    fontWeight: "800",
-    letterSpacing: -0.3,
-  },
+const getStyles = (colors) =>
+  StyleSheet.create({
+    screen: { flex: 1, backgroundColor: colors.void },
 
-  loginBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    backgroundColor: colors.chrome,
-    paddingHorizontal: 14,
-    paddingVertical: 9,
-    borderRadius: 999,
-  },
-  loginBtnText: { color: colors.void, fontWeight: "700", fontSize: 13 },
+    blobTop: {
+      position: "absolute",
+      top: -120,
+      right: -80,
+      width: 320,
+      height: 320,
+      borderRadius: 200,
+    },
+    blobBottom: {
+      position: "absolute",
+      bottom: -140,
+      left: -100,
+      width: 340,
+      height: 340,
+      borderRadius: 200,
+    },
 
-  avatarBtn: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
-    backgroundColor: colors.glassFillRaised,
-    borderWidth: 1,
-    borderColor: colors.hairline,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  avatarInitial: { color: colors.chrome, fontWeight: "700", fontSize: 13 },
-  avatarPanel: {
-    position: "absolute",
-    top: 44,
-    right: 0,
-    width: 200,
-    borderRadius: 18,
-    borderWidth: 1,
-    borderColor: colors.hairline,
-    padding: 14,
-    zIndex: 50,
-    overflow: "hidden",
-  },
-  avatarName: { color: colors.chrome, fontWeight: "700", fontSize: 13.5 },
-  avatarEmail: { color: colors.steel, fontSize: 11.5, marginTop: 2 },
-  hr: { height: 1, backgroundColor: colors.hairlineDim, marginVertical: 8 },
-  avatarRow: { paddingVertical: 8 },
-  avatarRowText: { color: colors.silver, fontSize: 13 },
+    topBar: {
+      flexDirection: "row",
+      justifyContent: "space-between",
+      alignItems: "center",
+      paddingHorizontal: 20,
+      paddingTop: 16,
+      paddingBottom: 16,
+      borderBottomWidth: 1,
+      borderBottomColor: colors.hairlineDim,
+      overflow: "hidden",
+    },
+    brand: {
+      color: colors.chrome,
+      fontSize: 20,
+      fontWeight: "800",
+      letterSpacing: -0.3,
+    },
 
-  listContent: { paddingHorizontal: 20, paddingBottom: 40 },
+    loginBtn: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 6,
+      backgroundColor: colors.chrome,
+      paddingHorizontal: 14,
+      paddingVertical: 9,
+      borderRadius: 999,
+    },
+    loginBtnText: { color: colors.void, fontWeight: "700", fontSize: 13 },
 
-  searchWrap: {
-    flexDirection: "row",
-    alignItems: "center",
-    borderRadius: 999,
-    borderWidth: 1,
-    borderColor: colors.hairline,
-    paddingHorizontal: 16,
-    height: 52,
-    marginTop: 20,
-    overflow: "hidden",
-  },
-  searchInput: {
-    flex: 1,
-    color: colors.chrome,
-    fontSize: 14.5,
-    outlineStyle: "none",
-  },
+    listContent: { paddingHorizontal: 20, paddingTop: 16, paddingBottom: 40 },
 
-  filterRow: { flexDirection: "row", gap: 10, marginTop: 14 },
-  filterPill: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    borderWidth: 1,
-    borderColor: colors.hairline,
-    borderRadius: 999,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    overflow: "hidden",
-  },
-  filterPillLocked: {
-    backgroundColor: colors.glassFill,
-    borderColor: colors.hairlineDim,
-  },
-  filterPillText: {
-    color: colors.silver,
-    fontSize: 12,
-    fontWeight: "600",
-    flexShrink: 1,
-    marginRight: 4,
-  },
+    // Lifts the header (search + filters) above the result cards so the
+    // suggestions dropdown's blurred backdrop can cover the cards below it.
+    headerRaised: { zIndex: 100, elevation: 13 },
 
-  tabsRow: { gap: 10, paddingVertical: 18 },
-  tabChipWrap: { borderRadius: 999, overflow: "hidden" },
-  tabChip: {
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    borderRadius: 999,
-    borderWidth: 1,
-    borderColor: colors.hairline,
-  },
-  tabChipActive: {
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    borderRadius: 999,
-  },
-  tabChipText: { color: colors.steel, fontSize: 13, fontWeight: "600" },
-  tabChipTextActive: { color: colors.void, fontSize: 13, fontWeight: "700" },
+    searchOuterWrap: {
+      marginTop: 20,
+      zIndex: 30,
+    },
+    searchWrap: {
+      flexDirection: "row",
+      alignItems: "center",
+      borderRadius: 999,
+      borderWidth: 1,
+      borderColor: colors.hairline,
+      paddingHorizontal: 16,
+      height: 52,
+      overflow: "hidden",
+    },
+    searchInput: {
+      flex: 1,
+      color: colors.chrome,
+      fontSize: 14.5,
+      outlineStyle: "none",
+    },
 
-  activeFiltersRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    flexWrap: "wrap",
-    gap: 8,
-    marginBottom: 16,
-  },
-  activeFiltersLabel: { color: colors.steel, fontSize: 12 },
-  clearablePill: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    backgroundColor: colors.glassFillRaised,
-    borderRadius: 999,
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderWidth: 1,
-    borderColor: colors.hairline,
-  },
-  clearablePillText: {
-    color: colors.chrome,
-    fontSize: 11.5,
-    fontWeight: "600",
-  },
+    disclaimerText: {
+      color: colors.steel,
+      fontSize: 11,
+      lineHeight: 15,
+      marginTop: 12,
+    },
+    sourceRow: { flexDirection: "row", alignItems: "center", gap: 6, marginTop: 8 },
+    sourceText: {
+      color: colors.accent,
+      fontSize: 11.5,
+      fontWeight: "600",
+      textDecorationLine: "underline",
+      flexShrink: 1,
+    },
 
-  cardWrap: { borderRadius: 22, marginBottom: 14 },
-  card: {
-    borderRadius: 22,
-    borderWidth: 1,
-    borderColor: colors.hairline,
-    backgroundColor: colors.glassFill,
-    padding: 16,
-    overflow: "hidden",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 14 },
-    shadowOpacity: 0.4,
-    shadowRadius: 22,
-    elevation: 8,
-  },
-  cardSheen: { position: "absolute", top: 0, left: 0, right: 0, height: "55%" },
-  cardTopRow: { flexDirection: "row", alignItems: "flex-start" },
-  cardIconBox: {
-    width: 44,
-    height: 44,
-    borderRadius: 13,
-    backgroundColor: colors.glassFillRaised,
-    borderWidth: 1,
-    borderColor: colors.hairline,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  cardMeta: {
-    color: colors.steel,
-    fontSize: 11.5,
-    fontWeight: "600",
-    marginBottom: 4,
-    letterSpacing: 0.3,
-  },
-  cardTitle: {
-    color: colors.chrome,
-    fontSize: 15,
-    fontWeight: "700",
-    lineHeight: 20,
-  },
+    filterRow: { flexDirection: "row", gap: 10, marginTop: 14 },
+    filterPill: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      borderWidth: 1,
+      borderColor: colors.hairline,
+      borderRadius: 999,
+      paddingHorizontal: 12,
+      paddingVertical: 10,
+      overflow: "hidden",
+    },
+    filterPillLocked: {
+      backgroundColor: colors.glassFill,
+      borderColor: colors.hairlineDim,
+    },
+    filterPillText: {
+      color: colors.silver,
+      fontSize: 12,
+      fontWeight: "600",
+      flexShrink: 1,
+      marginRight: 4,
+    },
 
-  cardFooter: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    marginTop: 16,
-    paddingTop: 14,
-    borderTopWidth: 1,
-    borderTopColor: colors.hairlineDim,
-  },
-  footerLeft: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    flexShrink: 1,
-  },
-  levelBadge: {
-    backgroundColor: colors.glassFillRaised,
-    borderRadius: 999,
-    paddingHorizontal: 9,
-    paddingVertical: 4,
-    borderWidth: 1,
-    borderColor: colors.hairline,
-  },
-  levelBadgeText: { color: colors.silver, fontSize: 10.5, fontWeight: "700" },
-  downloadsText: { color: colors.steel, fontSize: 11.5 },
-  downloadBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: 12,
-    backgroundColor: colors.chrome,
-    alignItems: "center",
-    justifyContent: "center",
-  },
+    tabsRow: { gap: 10, paddingVertical: 18 },
+    tabChipWrap: { borderRadius: 999, overflow: "hidden" },
+    tabChip: {
+      paddingHorizontal: 16,
+      paddingVertical: 10,
+      borderRadius: 999,
+      borderWidth: 1,
+      borderColor: colors.hairline,
+    },
+    tabChipActive: {
+      paddingHorizontal: 16,
+      paddingVertical: 10,
+      borderRadius: 999,
+    },
+    tabChipText: { color: colors.steel, fontSize: 13, fontWeight: "600" },
+    tabChipTextActive: { color: colors.void, fontSize: 13, fontWeight: "700" },
 
-  emptyState: {
-    alignItems: "center",
-    paddingVertical: 60,
-    paddingHorizontal: 30,
-  },
-  emptyTitle: {
-    color: colors.chrome,
-    fontSize: 15,
-    fontWeight: "700",
-    marginTop: 14,
-  },
-  emptySubtitle: {
-    color: colors.steel,
-    fontSize: 13,
-    textAlign: "center",
-    marginTop: 6,
-    lineHeight: 18,
-  },
+    activeFiltersRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      flexWrap: "wrap",
+      gap: 8,
+      marginBottom: 16,
+    },
+    activeFiltersLabel: { color: colors.steel, fontSize: 12 },
+    clearablePill: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 6,
+      backgroundColor: colors.glassFillRaised,
+      borderRadius: 999,
+      paddingHorizontal: 10,
+      paddingVertical: 5,
+      borderWidth: 1,
+      borderColor: colors.hairline,
+    },
+    clearablePillText: {
+      color: colors.chrome,
+      fontSize: 11.5,
+      fontWeight: "600",
+    },
 
-  modalBackdrop: {
-    flex: 1,
-    backgroundColor: "rgba(0,0,0,0.55)",
-    justifyContent: "flex-end",
-  },
-  sheet: {
-    borderTopLeftRadius: 28,
-    borderTopRightRadius: 28,
-    paddingTop: 10,
-    paddingHorizontal: 20,
-    paddingBottom: 30,
-    maxHeight: "60%",
-    overflow: "hidden",
-  },
-  sheetHandle: {
-    width: 40,
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: colors.hairline,
-    alignSelf: "center",
-    marginBottom: 14,
-  },
-  sheetTitle: {
-    color: colors.chrome,
-    fontSize: 16,
-    fontWeight: "700",
-    marginBottom: 8,
-  },
-  sheetOption: {
-    paddingVertical: 14,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.hairlineDim,
-  },
-  sheetOptionText: { color: colors.silver, fontSize: 15 },
-});
+    cardWrap: { borderRadius: 22, marginBottom: 14 },
+    card: {
+      borderRadius: 22,
+      borderWidth: 1,
+      borderColor: colors.hairline,
+      backgroundColor: colors.glassFill,
+      padding: 16,
+      overflow: "hidden",
+      shadowColor: "#000",
+      shadowOffset: { width: 0, height: 14 },
+      shadowOpacity: 0.4,
+      shadowRadius: 22,
+      elevation: 8,
+    },
+    cardSheen: {
+      position: "absolute",
+      top: 0,
+      left: 0,
+      right: 0,
+      height: "55%",
+    },
+    cardTopRow: { flexDirection: "row", alignItems: "flex-start" },
+    cardIconBox: {
+      width: 44,
+      height: 44,
+      borderRadius: 13,
+      backgroundColor: colors.glassFillRaised,
+      borderWidth: 1,
+      borderColor: colors.hairline,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    cardMeta: {
+      color: colors.steel,
+      fontSize: 11.5,
+      fontWeight: "600",
+      marginBottom: 4,
+      letterSpacing: 0.3,
+    },
+    cardTitle: {
+      color: colors.chrome,
+      fontSize: 15,
+      fontWeight: "700",
+      lineHeight: 20,
+    },
+
+    cardFooter: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      marginTop: 16,
+      paddingTop: 14,
+      borderTopWidth: 1,
+      borderTopColor: colors.hairlineDim,
+    },
+    footerLeft: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 8,
+      flexShrink: 1,
+    },
+    levelBadge: {
+      backgroundColor: colors.glassFillRaised,
+      borderRadius: 999,
+      paddingHorizontal: 9,
+      paddingVertical: 4,
+      borderWidth: 1,
+      borderColor: colors.hairline,
+    },
+    levelBadgeText: { color: colors.silver, fontSize: 10.5, fontWeight: "700" },
+    downloadsText: { color: colors.steel, fontSize: 11.5 },
+
+    emptyState: {
+      alignItems: "center",
+      paddingVertical: 60,
+      paddingHorizontal: 30,
+    },
+    emptyTitle: {
+      color: colors.chrome,
+      fontSize: 15,
+      fontWeight: "700",
+      marginTop: 14,
+    },
+    emptySubtitle: {
+      color: colors.steel,
+      fontSize: 13,
+      textAlign: "center",
+      marginTop: 6,
+      lineHeight: 18,
+    },
+
+    modalBackdrop: {
+      flex: 1,
+      backgroundColor: "rgba(0,0,0,0.55)",
+      justifyContent: "flex-end",
+    },
+    sheet: {
+      borderTopLeftRadius: 28,
+      borderTopRightRadius: 28,
+      paddingTop: 10,
+      paddingHorizontal: 20,
+      paddingBottom: 30,
+      maxHeight: "60%",
+      overflow: "hidden",
+    },
+    sheetHandle: {
+      width: 40,
+      height: 4,
+      borderRadius: 2,
+      backgroundColor: colors.hairline,
+      alignSelf: "center",
+      marginBottom: 14,
+    },
+    sheetTitle: {
+      color: colors.chrome,
+      fontSize: 16,
+      fontWeight: "700",
+      marginBottom: 8,
+    },
+    sheetOption: {
+      paddingVertical: 14,
+      borderBottomWidth: 1,
+      borderBottomColor: colors.hairlineDim,
+    },
+    sheetOptionText: { color: colors.silver, fontSize: 15 },
+  });

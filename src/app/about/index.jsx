@@ -1,24 +1,19 @@
 import Footer from "@/components/Footer";
+import { useTheme } from "@/contexts/ThemeContext";
 import { router } from "expo-router";
 import { BookOpen, ChevronLeft, Target, Users } from "lucide-react-native";
+import { useMemo } from "react";
 import {
-  Platform,
+  Linking,
   ScrollView,
   StyleSheet,
   Text,
   TouchableOpacity,
   View,
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 
-const colors = {
-  void: "#0A0A0B",
-  onyxRaised: "#1C1C1F",
-  chrome: "#F5F5F7",
-  silver: "#C9C9CE",
-  steel: "#8E8E93",
-  hairline: "#2C2C30",
-  accent: "#8E8EFF",
-};
+const OFFICIAL_SITE_URL = "https://www.nitkkr.ac.in";
 
 const highlights = [
   {
@@ -39,8 +34,11 @@ const highlights = [
 ];
 
 export default function AboutUsScreen() {
+  const { colors } = useTheme();
+  const styles = useMemo(() => getStyles(colors), [colors]);
+
   return (
-    <View style={styles.screen}>
+    <SafeAreaView style={styles.screen} edges={["top"]}>
       <View style={styles.topBar}>
         <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
           <ChevronLeft size={22} color={colors.chrome} strokeWidth={2} />
@@ -80,7 +78,14 @@ export default function AboutUsScreen() {
           collecting and organizing papers branch-wise and semester-wise, and
           what began as a small shared folder eventually grew into this
           platform, with a proper search, filters by exam type and year, and
-          a syllabus section that mirrors the official course structure.
+          a syllabus section that mirrors the{" "}
+          <Text
+            style={styles.link}
+            onPress={() => Linking.openURL(OFFICIAL_SITE_URL)}
+          >
+            official course structure published by NIT Kurukshetra
+          </Text>
+          .
         </Text>
 
         <Text style={styles.heading}>What Makes This Different</Text>
@@ -110,18 +115,19 @@ export default function AboutUsScreen() {
 
         <Footer />
       </ScrollView>
-    </View>
+    </SafeAreaView>
   );
 }
 
-const styles = StyleSheet.create({
+const getStyles = (colors) =>
+  StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.void },
   topBar: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
     paddingHorizontal: 16,
-    paddingTop: Platform.OS === "ios" ? 56 : 24,
+    paddingTop: 16,
     paddingBottom: 16,
     borderBottomWidth: 1,
     borderBottomColor: colors.hairline,
@@ -166,4 +172,5 @@ const styles = StyleSheet.create({
     marginBottom: 6,
   },
   cardBody: { color: colors.steel, fontSize: 13, lineHeight: 19 },
-});
+  });
+

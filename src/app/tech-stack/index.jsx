@@ -1,4 +1,5 @@
 import Footer from "@/components/Footer";
+import { useTheme } from "@/contexts/ThemeContext";
 import { router } from "expo-router";
 import {
   ChevronLeft,
@@ -11,25 +12,15 @@ import {
   Server,
   ShieldCheck,
 } from "lucide-react-native";
+import { useMemo } from "react";
 import {
-  Platform,
   ScrollView,
   StyleSheet,
   Text,
   TouchableOpacity,
   View,
 } from "react-native";
-
-const colors = {
-  void: "#0A0A0B",
-  onyxRaised: "#1C1C1F",
-  onyx: "#141416",
-  chrome: "#F5F5F7",
-  silver: "#C9C9CE",
-  steel: "#8E8E93",
-  hairline: "#2C2C30",
-  accent: "#8E8EFF",
-};
+import { SafeAreaView } from "react-native-safe-area-context";
 
 const STACK = [
   {
@@ -80,8 +71,11 @@ const STACK = [
 ];
 
 export default function TechStackScreen() {
+  const { colors } = useTheme();
+  const styles = useMemo(() => getStyles(colors), [colors]);
+
   return (
-    <View style={styles.screen}>
+    <SafeAreaView style={styles.screen} edges={["top"]}>
       <View style={styles.topBar}>
         <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
           <ChevronLeft size={22} color={colors.chrome} strokeWidth={2} />
@@ -135,18 +129,19 @@ export default function TechStackScreen() {
 
         <Footer />
       </ScrollView>
-    </View>
+    </SafeAreaView>
   );
 }
 
-const styles = StyleSheet.create({
+const getStyles = (colors) =>
+  StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.void },
   topBar: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
     paddingHorizontal: 16,
-    paddingTop: Platform.OS === "ios" ? 56 : 24,
+    paddingTop: 16,
     paddingBottom: 16,
     borderBottomWidth: 1,
     borderBottomColor: colors.hairline,
@@ -182,3 +177,4 @@ const styles = StyleSheet.create({
   cardTitle: { color: colors.chrome, fontSize: 14.5, fontWeight: "700", marginBottom: 4 },
   cardBody: { color: colors.steel, fontSize: 12.5, lineHeight: 18 },
 });
+

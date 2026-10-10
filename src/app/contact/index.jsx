@@ -1,11 +1,11 @@
 import Footer from "@/components/Footer";
 import { useToast } from "@/contexts/ToastContext";
+import { useTheme } from "@/contexts/ThemeContext";
 import { router } from "expo-router";
 import { CheckCircle2, ChevronLeft, Send } from "lucide-react-native";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import {
   KeyboardAvoidingView,
-  Platform,
   ScrollView,
   StyleSheet,
   Text,
@@ -13,20 +13,12 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
-
-const colors = {
-  void: "#0A0A0B",
-  onyx: "#141416",
-  onyxRaised: "#1C1C1F",
-  chrome: "#F5F5F7",
-  silver: "#C9C9CE",
-  steel: "#8E8E93",
-  hairline: "#2C2C30",
-  accent: "#8E8EFF",
-};
+import { SafeAreaView } from "react-native-safe-area-context";
 
 export default function ContactScreen() {
   const { addToast } = useToast();
+  const { colors } = useTheme();
+  const styles = useMemo(() => getStyles(colors), [colors]);
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [subject, setSubject] = useState("");
@@ -59,7 +51,7 @@ export default function ContactScreen() {
   };
 
   return (
-    <View style={styles.screen}>
+    <SafeAreaView style={styles.screen} edges={["top"]}>
       <View style={styles.topBar}>
         <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
           <ChevronLeft size={22} color={colors.chrome} strokeWidth={2} />
@@ -68,10 +60,7 @@ export default function ContactScreen() {
         <View style={styles.backBtn} />
       </View>
 
-      <KeyboardAvoidingView
-        style={{ flex: 1 }}
-        behavior={Platform.OS === "ios" ? "padding" : undefined}
-      >
+      <KeyboardAvoidingView style={{ flex: 1 }} behavior="padding">
         <ScrollView contentContainerStyle={styles.content}>
           <Text style={styles.heading}>Get in touch</Text>
           <Text style={styles.paragraph}>
@@ -146,18 +135,19 @@ export default function ContactScreen() {
           <Footer />
         </ScrollView>
       </KeyboardAvoidingView>
-    </View>
+    </SafeAreaView>
   );
 }
 
-const styles = StyleSheet.create({
+const getStyles = (colors) =>
+  StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.void },
   topBar: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
     paddingHorizontal: 16,
-    paddingTop: Platform.OS === "ios" ? 56 : 24,
+    paddingTop: 16,
     paddingBottom: 16,
     borderBottomWidth: 1,
     borderBottomColor: colors.hairline,
@@ -208,4 +198,4 @@ const styles = StyleSheet.create({
   },
   sentTitle: { color: colors.chrome, fontSize: 16, fontWeight: "700", marginTop: 14, marginBottom: 6 },
   sentBody: { color: colors.steel, fontSize: 13, textAlign: "center" },
-});
+  });

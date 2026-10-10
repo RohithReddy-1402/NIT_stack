@@ -1,4 +1,5 @@
 import Footer from "@/components/Footer";
+import { useTheme } from "@/contexts/ThemeContext";
 import { useToast } from "@/contexts/ToastContext";
 import { LinearGradient } from "expo-linear-gradient";
 import { router } from "expo-router";
@@ -9,9 +10,8 @@ import {
   IndianRupee,
   ShieldCheck,
 } from "lucide-react-native";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import {
-  Platform,
   ScrollView,
   StyleSheet,
   Text,
@@ -19,17 +19,7 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
-
-const colors = {
-  void: "#0A0A0B",
-  onyx: "#141416",
-  onyxRaised: "#1C1C1F",
-  chrome: "#F5F5F7",
-  silver: "#C9C9CE",
-  steel: "#8E8E93",
-  hairline: "#2C2C30",
-  accent: "#8E8EFF",
-};
+import { SafeAreaView } from "react-native-safe-area-context";
 
 const PRESETS = [50, 100, 250, 500, 1000];
 
@@ -63,6 +53,8 @@ const FAQ = [
 
 export default function DonateScreen() {
   const { addToast } = useToast();
+  const { colors } = useTheme();
+  const styles = useMemo(() => getStyles(colors), [colors]);
   const [selected, setSelected] = useState(250);
   const [custom, setCustom] = useState("");
   const [useCustom, setUseCustom] = useState(false);
@@ -79,7 +71,7 @@ export default function DonateScreen() {
   };
 
   return (
-    <View style={styles.screen}>
+    <SafeAreaView style={styles.screen} edges={["top"]}>
       <View style={styles.topBar}>
         <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
           <ChevronLeft size={22} color={colors.chrome} strokeWidth={2} />
@@ -214,7 +206,7 @@ export default function DonateScreen() {
             and a domain all cost something to keep running. Donations don&apos;t
             fund a business — they fund the next semester of uptime. If this
             app has helped you and you&apos;re able to spare something, it
-            genuinely helps. If not, that's completely fine too — use it,
+            genuinely helps. If not, that&apos;s completely fine too — use it,
             share it with your batchmates, and good luck with your exams.
           </Text>
           <Text style={styles.noteSign}>— The developer, NIT KKR Previous Papers</Text>
@@ -250,18 +242,19 @@ export default function DonateScreen() {
 
         <Footer />
       </ScrollView>
-    </View>
+    </SafeAreaView>
   );
 }
 
-const styles = StyleSheet.create({
+const getStyles = (colors) =>
+  StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.void },
   topBar: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
     paddingHorizontal: 16,
-    paddingTop: Platform.OS === "ios" ? 56 : 24,
+    paddingTop: 16,
     paddingBottom: 16,
     borderBottomWidth: 1,
     borderBottomColor: colors.hairline,
@@ -376,4 +369,4 @@ const styles = StyleSheet.create({
   faqQuestionRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingVertical: 14 },
   faqQuestion: { color: colors.chrome, fontSize: 13.5, fontWeight: "600", flex: 1, marginRight: 10 },
   faqAnswer: { color: colors.steel, fontSize: 12.5, lineHeight: 19, paddingBottom: 16 },
-});
+  });

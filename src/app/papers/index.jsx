@@ -1,16 +1,27 @@
 import DownloadOptionsSheet from "@/components/DownloadOptionsSheet";
-import { saveToLibrary } from "@/services/downloads";
+import {
+  SuggestionsDropdown,
+  useAutocomplete,
+  useDropdownAnchor,
+} from "@/components/SearchAutocomplete";
+import Skeleton from "@/components/Skeleton";
+import { saveToDeviceStorage, saveToLibrary } from "@/services/downloads";
+import { getPaperAccessUrl } from "@/services/papers";
 import { File, Paths } from "expo-file-system";
 import { router } from "expo-router";
 import * as Sharing from "expo-sharing";
+import * as WebBrowser from "expo-web-browser";
 import {
   Check,
   ChevronDown,
   Download,
+  ExternalLink,
   FileText,
   KeyRound,
   Loader2,
+  RefreshCw,
   Search,
+  WifiOff,
   X,
 } from "lucide-react-native";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -18,25 +29,19 @@ import {
   FlatList,
   Linking,
   Modal,
-  Platform,
   StyleSheet,
   Text,
   TextInput,
   TouchableOpacity,
   View,
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
+import { useAuth } from "../../contexts/AuthContext";
+import { useTheme } from "../../contexts/ThemeContext";
 import { useToast } from "../../contexts/ToastContext";
 import { usePapers } from "../../hooks/usePapers";
 
-const colors = {
-  void: "#0A0A0B",
-  onyx: "#141416",
-  onyxRaised: "#1C1C1F",
-  chrome: "#F5F5F7",
-  silver: "#C9C9CE",
-  steel: "#8E8E93",
-  hairline: "#2C2C30",
-};
+const OFFICIAL_SITE_URL = "https://www.nitkkr.ac.in";
 
 const SEMESTERS = [
   "Sem-1",
@@ -50,18 +55,15 @@ const SEMESTERS = [
 ];
 const ADDITIONAL_TABS = ["Sem", "Mid-1", "Mid-2"];
 
-export default function QuestionPapersScreen({
-  isLoggedIn,
-  user,
-  onLoginClick,
-  onLogout,
-}) {
+export default function QuestionPapersScreen() {
+  const { isLoggedIn, token } = useAuth();
+  const { colors } = useTheme();
+  const styles = useMemo(() => getStyles(colors), [colors]);
   const [activeTab, setActiveTab] = useState("all");
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedSemester, setSelectedSemester] = useState("all");
   const [selectedType, setSelectedType] = useState("all");
   const [selectedYear, setSelectedYear] = useState("all");
-  const [avatarOpen, setAvatarOpen] = useState(false);
   const [filterModal, setFilterModal] = useState(null); // null | "semester" | "year" | "type"
 
   const { addToast } = useToast();
@@ -71,25 +73,43 @@ export default function QuestionPapersScreen({
   const handleNav = () => router.push("Home");
   const { questionPapers, loading, error, refetch } = usePapers();
 
-  const pingDownloadCount = (key) => {
-    fetch(`${process.env.EXPO_PUBLIC_API_URL}/papers/downloadcount`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ r2Key: key }),
-    }).catch(() => {});
+  const {
+    open: suggestionsOpen,
+    setOpen: setSuggestionsOpen,
+    suggestions,
+  } = useAutocomplete({
+    items: questionPapers ?? [],
+    searchKeys: ["title", "subject", "subjectCode"],
+    value: searchQuery,
+  });
+  const { anchorRef, onAnchorLayout, dropdownTop, dropdownStyle } =
+    useDropdownAnchor(suggestionsOpen);
+
+  // The papers R2 bucket is private now — every view/download needs a signed
+  // URL from the backend (which also checks login + premium/free-quota), not
+  // the raw https://pdf.nitkkrpyqs.in/<r2Key> path used before.
+  const reportAccessError = (error, fallback, onStatus) => {
+    onStatus?.("idle");
+    if (error?.code === "LOGIN_REQUIRED") {
+      addToast("Log in to view or download papers.", "error");
+      router.push("/login");
+    } else if (error?.code === "PREMIUM_REQUIRED") {
+      addToast(error.message, "error");
+    } else {
+      addToast(fallback, "error");
+    }
   };
 
   const handleView = async (paper, onStatus) => {
     if (!paper?.r2Key) return;
     onStatus?.("loading");
     try {
-      pingDownloadCount(paper.r2Key);
-      await Linking.openURL(`https://pdf.nitkkrpyqs.in/${paper.r2Key}`);
+      const signedUrl = await getPaperAccessUrl(token, paper.r2Key, "view");
+      await WebBrowser.openBrowserAsync(signedUrl);
       onStatus?.("done");
       setTimeout(() => onStatus?.("idle"), 1800);
-    } catch {
-      onStatus?.("idle");
-      addToast("Couldn't open that paper. Try again.", "error");
+    } catch (error) {
+      reportAccessError(error, "Couldn't open that paper. Try again.", onStatus);
     }
   };
 
@@ -97,7 +117,7 @@ export default function QuestionPapersScreen({
     if (!paper?.r2Key) return;
     onStatus?.("loading");
     try {
-      pingDownloadCount(paper.r2Key);
+      const signedUrl = await getPaperAccessUrl(token, paper.r2Key, "download");
       await saveToLibrary({
         id: paper.r2Key,
         title: `${paper.title} ${paper.examType} Paper`,
@@ -105,14 +125,13 @@ export default function QuestionPapersScreen({
         code: paper.subjectCode,
         year: paper.year,
         source: "papers",
-        remoteUrl: `https://pdf.nitkkrpyqs.in/${paper.r2Key}`,
+        remoteUrl: signedUrl,
       });
       addToast(`${paper.title} saved to your library.`, "success");
       onStatus?.("done");
       setTimeout(() => onStatus?.("idle"), 1800);
-    } catch {
-      onStatus?.("idle");
-      addToast("Couldn't save that paper. Try again.", "error");
+    } catch (error) {
+      reportAccessError(error, "Couldn't save that paper. Try again.", onStatus);
     }
   };
 
@@ -120,30 +139,28 @@ export default function QuestionPapersScreen({
     if (!paper?.r2Key) return;
     onStatus?.("loading");
     try {
-      pingDownloadCount(paper.r2Key);
-      const destination = new File(
-        Paths.cache,
-        `${paper.subjectCode}-${paper.examType}-${paper.year}.pdf`.replace(
-          /[^a-zA-Z0-9-_.]/g,
-          "_",
-        ),
+      const signedUrl = await getPaperAccessUrl(token, paper.r2Key, "download");
+      const filename = `${paper.subjectCode}-${paper.examType}-${paper.year}.pdf`.replace(
+        /[^a-zA-Z0-9-_.]/g,
+        "_",
       );
-      const downloaded = await File.downloadFileAsync(
-        `https://pdf.nitkkrpyqs.in/${paper.r2Key}`,
-        destination,
-      );
-      if (await Sharing.isAvailableAsync()) {
-        await Sharing.shareAsync(downloaded.uri);
+
+      const { savedDirectly } = await saveToDeviceStorage(signedUrl, filename);
+      if (savedDirectly) {
+        addToast(`${paper.title} saved to your device.`, "success");
+      } else {
+        const destination = new File(Paths.cache, filename);
+        const downloaded = await File.downloadFileAsync(signedUrl, destination);
+        if (await Sharing.isAvailableAsync()) {
+          await Sharing.shareAsync(downloaded.uri);
+        }
       }
       onStatus?.("done");
       setTimeout(() => onStatus?.("idle"), 1800);
-    } catch {
-      onStatus?.("idle");
-      addToast("Couldn't download that paper. Try again.", "error");
+    } catch (error) {
+      reportAccessError(error, "Couldn't download that paper. Try again.", onStatus);
     }
   };
-
-  const handleiconclick = () => setAvatarOpen((v) => !v);
 
   useEffect(() => {
     const t = setTimeout(() => searchRef.current?.focus(), 300);
@@ -158,67 +175,88 @@ export default function QuestionPapersScreen({
     [questionPapers],
   );
 
-  const subjects = useMemo(
-    () => [...new Set(questionPapers?.map((paper) => paper.subject))],
-    [questionPapers],
-  );
+  const subjects = useMemo(() => {
+    const seen = new Map();
+    for (const paper of questionPapers ?? []) {
+      const subject = paper.subject?.trim();
+      if (!subject) continue;
+      const dedupeKey = subject.toLowerCase();
+      if (!seen.has(dedupeKey)) seen.set(dedupeKey, subject);
+    }
+    return [...seen.values()];
+  }, [questionPapers]);
 
-  let filteredPapers = questionPapers?.filter((paper) => {
-    const q = searchQuery.toLowerCase().trim();
-    const matchesSearch =
-      paper.title.toLowerCase().includes(q) ||
-      paper.subject.toLowerCase().includes(q) ||
-      paper.subjectCode.toLowerCase().includes(q) ||
-      paper.subjectCode.replace("-", "").toLowerCase().includes(q) ||
-      paper.subjectCode.replace(" ", "").includes(q);
-    const matchesSemester =
-      selectedSemester === "all" ||
-      paper.sem === selectedSemester.split("-")[1];
-    const matchesYear =
-      selectedYear === "all" || parseInt(paper.year) === parseInt(selectedYear);
-    const matchesType =
-      selectedType === "all" || paper.examType === selectedType;
+  // Filtering 300+ papers with several string ops per item is expensive
+  // enough that doing it unmemoized on every render (every keystroke, every
+  // unrelated state change) was a real source of UI jank/input lag on
+  // mid-range devices. Memoize it against just the inputs that matter.
+  const filteredPapers = useMemo(() => {
+    let result = questionPapers?.filter((paper) => {
+      const q = searchQuery.toLowerCase().trim();
+      const matchesSearch =
+        paper.title.toLowerCase().includes(q) ||
+        paper.subject.toLowerCase().includes(q) ||
+        paper.subjectCode.toLowerCase().includes(q) ||
+        paper.subjectCode.replace("-", "").toLowerCase().includes(q) ||
+        paper.subjectCode.replace(" ", "").includes(q);
+      const matchesSemester =
+        selectedSemester === "all" ||
+        paper.sem === selectedSemester.split("-")[1];
+      const matchesYear =
+        selectedYear === "all" ||
+        parseInt(paper.year) === parseInt(selectedYear);
+      const matchesType =
+        selectedType === "all" || paper.examType === selectedType;
 
-    if (activeTab === "all")
-      return matchesSearch && matchesSemester && matchesYear && matchesType;
-    if (activeTab === "recent")
-      return matchesSearch && matchesSemester && matchesYear && matchesType;
+      if (activeTab === "all")
+        return matchesSearch && matchesSemester && matchesYear && matchesType;
+      if (activeTab === "recent")
+        return matchesSearch && matchesSemester && matchesYear && matchesType;
+      if (activeTab === "popular")
+        return matchesSearch && matchesSemester && matchesYear && matchesType;
+      if (activeTab === "Mid-1")
+        return (
+          paper.examType === "Mid-1" &&
+          matchesSearch &&
+          matchesSemester &&
+          matchesYear
+        );
+      if (activeTab === "Mid-2")
+        return (
+          paper.examType === "Mid-2" &&
+          matchesSearch &&
+          matchesSemester &&
+          matchesYear
+        );
+      if (activeTab === "Sem")
+        return (
+          paper.examType === "Sem" &&
+          matchesSearch &&
+          matchesSemester &&
+          matchesYear
+        );
+
+      return (
+        paper.subject.trim().toLowerCase() === activeTab.toLowerCase() &&
+        matchesSearch &&
+        matchesSemester &&
+        matchesYear &&
+        matchesType
+      );
+    });
+
     if (activeTab === "popular")
-      return matchesSearch && matchesSemester && matchesYear && matchesType;
-    if (activeTab === "Mid-1")
-      return (
-        paper.examType === "Mid-1" &&
-        matchesSearch &&
-        matchesSemester &&
-        matchesYear
-      );
-    if (activeTab === "Mid-2")
-      return (
-        paper.examType === "Mid-2" &&
-        matchesSearch &&
-        matchesSemester &&
-        matchesYear
-      );
-    if (activeTab === "Sem")
-      return (
-        paper.examType === "Sem" &&
-        matchesSearch &&
-        matchesSemester &&
-        matchesYear
-      );
-
-    return (
-      paper.subject.toLowerCase() === activeTab.toLowerCase() &&
-      matchesSearch &&
-      matchesSemester &&
-      matchesYear &&
-      matchesType
-    );
-  });
-
-  if (activeTab === "popular")
-    filteredPapers = filteredPapers?.sort((a, b) => b.downloads - a.downloads);
-  if (activeTab === "recent") filteredPapers = [...filteredPapers].reverse();
+      result = result?.sort((a, b) => b.downloads - a.downloads);
+    if (activeTab === "recent") result = [...(result ?? [])].reverse();
+    return result;
+  }, [
+    questionPapers,
+    searchQuery,
+    selectedSemester,
+    selectedYear,
+    selectedType,
+    activeTab,
+  ]);
 
   const tabs = [
     { key: "all", label: `All Papers (${questionPapers?.length})` },
@@ -230,60 +268,62 @@ export default function QuestionPapersScreen({
     })),
     ...subjects?.map((s) => ({ key: s.toLowerCase(), label: s })),
   ];
-  console.log(filteredPapers?.length, "filteredPapers?.length");
+
+  if (error) {
+    return (
+      <SafeAreaView style={styles.screen} edges={["top"]}>
+        <View style={styles.topBar}>
+          <TouchableOpacity onPress={handleNav} activeOpacity={0.8}>
+            <Text style={styles.brand}>NIT KKR PYQs</Text>
+          </TouchableOpacity>
+        </View>
+        <View style={styles.errorState}>
+          <WifiOff size={44} color={colors.steel} strokeWidth={1.5} />
+          <Text style={styles.emptyTitle}>Couldn&apos;t load question papers</Text>
+          <Text style={styles.emptySubtitle}>
+            Check your internet connection and try again.
+          </Text>
+          <TouchableOpacity
+            style={styles.retryBtn}
+            activeOpacity={0.85}
+            onPress={refetch}
+          >
+            <RefreshCw size={15} color={colors.void} strokeWidth={2} />
+            <Text style={styles.retryBtnText}>Retry</Text>
+          </TouchableOpacity>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  if (loading && !questionPapers?.length) {
+    return (
+      <SafeAreaView style={styles.screen} edges={["top"]}>
+        <View style={styles.topBar}>
+          <TouchableOpacity onPress={handleNav} activeOpacity={0.8}>
+            <Text style={styles.brand}>NIT KKR PYQs</Text>
+          </TouchableOpacity>
+        </View>
+        <View style={styles.listContent}>
+          {Array.from({ length: 6 }).map((_, i) => (
+            <PaperCardSkeleton key={i} />
+          ))}
+        </View>
+      </SafeAreaView>
+    );
+  }
+
   return (
-    <View style={styles.screen}>
+    <SafeAreaView style={styles.screen} edges={["top"]}>
       {/* Top bar */}
       <View style={styles.topBar}>
         <TouchableOpacity onPress={handleNav} activeOpacity={0.8}>
           <Text style={styles.brand}>NIT KKR PYQs</Text>
         </TouchableOpacity>
 
-        {isLoggedIn ? (
-          <View>
-            <TouchableOpacity
-              onPress={handleiconclick}
-              style={styles.avatarBtn}
-              activeOpacity={0.85}
-            >
-              <Text style={styles.avatarInitial}>
-                {(user?.name || "U").charAt(0).toUpperCase()}
-              </Text>
-            </TouchableOpacity>
-            {avatarOpen && (
-              <View style={styles.avatarPanel}>
-                <Text style={styles.avatarName}>{user?.name}</Text>
-                <Text style={styles.avatarEmail} numberOfLines={1}>
-                  {user?.email}
-                </Text>
-                <View style={styles.hr} />
-                <TouchableOpacity style={styles.avatarRow}>
-                  <Text style={styles.avatarRowText}>Dashboard</Text>
-                </TouchableOpacity>
-                <TouchableOpacity style={styles.avatarRow}>
-                  <Text style={styles.avatarRowText}>Settings</Text>
-                </TouchableOpacity>
-                <TouchableOpacity style={styles.avatarRow}>
-                  <Text style={styles.avatarRowText}>Earnings</Text>
-                </TouchableOpacity>
-                <View style={styles.hr} />
-                <TouchableOpacity
-                  style={styles.avatarRow}
-                  onPress={() => {
-                    setAvatarOpen(false);
-                    onLogout();
-                  }}
-                >
-                  <Text style={[styles.avatarRowText, { color: "#FF453A" }]}>
-                    Sign out
-                  </Text>
-                </TouchableOpacity>
-              </View>
-            )}
-          </View>
-        ) : (
+        {!isLoggedIn && (
           <TouchableOpacity
-            onPress={onLoginClick}
+            onPress={() => router.push("login")}
             style={styles.loginBtn}
             activeOpacity={0.85}
           >
@@ -301,8 +341,13 @@ export default function QuestionPapersScreen({
         )}
         contentContainerStyle={styles.listContent}
         ListHeaderComponent={
-          <View>
-            <View style={styles.searchWrap}>
+          <View style={styles.headerRaised}>
+            <View
+              ref={anchorRef}
+              collapsable={false}
+              onLayout={onAnchorLayout}
+              style={styles.searchWrap}
+            >
               <Search
                 size={17}
                 color={colors.steel}
@@ -311,12 +356,37 @@ export default function QuestionPapersScreen({
               <TextInput
                 ref={searchRef}
                 value={searchQuery}
-                onChangeText={setSearchQuery}
+                onChangeText={(text) => {
+                  setSearchQuery(text);
+                  setSuggestionsOpen(true);
+                }}
+                onFocus={() => setSuggestionsOpen(true)}
+                onBlur={() => setTimeout(() => setSuggestionsOpen(false), 150)}
                 placeholder="Search question papers... (Name, Subject Code)"
                 placeholderTextColor={colors.steel}
+                autoCapitalize="none"
+                autoCorrect={false}
                 style={styles.searchInput}
               />
             </View>
+
+            <Text style={styles.disclaimerText}>
+              Not affiliated with, endorsed by, or officially connected with
+              NIT Kurukshetra or any Government of India / State Government
+              department. Papers are set by the official NIT Kurukshetra
+              examination cell and shared here for informational purposes
+              only.
+            </Text>
+            <TouchableOpacity
+              style={styles.sourceRow}
+              activeOpacity={0.7}
+              onPress={() => Linking.openURL(OFFICIAL_SITE_URL)}
+            >
+              <ExternalLink size={12} color={colors.accent} strokeWidth={2} />
+              <Text style={styles.sourceText}>
+                Official source: nitkkr.ac.in
+              </Text>
+            </TouchableOpacity>
 
             {/* Filter pills -> open bottom-sheet modals (RN has no <select>) */}
             <View style={styles.filterRow}>
@@ -345,7 +415,7 @@ export default function QuestionPapersScreen({
               data={tabs}
               horizontal
               showsHorizontalScrollIndicator={false}
-              keyExtractor={(t) => t.r2Key}
+              keyExtractor={(t) => t.key}
               contentContainerStyle={styles.tabsRow}
               renderItem={({ item }) => (
                 <TouchableOpacity
@@ -402,6 +472,32 @@ export default function QuestionPapersScreen({
             </Text>
           </View>
         }
+      />
+
+      {/* Rendered as a sibling *after* the FlatList (not nested inside its
+          ListHeaderComponent) on purpose: React Native's virtualized lists
+          wrap the header and every row as separate sibling "cells" under the
+          hood, so an elevated/zIndexed view living inside the header could
+          still lose the stacking fight against row cells below it on
+          Android — which was both hiding suggestions behind paper cards and
+          stealing taps meant for a suggestion. A later JSX sibling of the
+          FlatList itself always paints on top, unconditionally. */}
+      <SuggestionsDropdown
+        visible={suggestionsOpen}
+        suggestions={suggestions}
+        getLabel={(paper) => paper.subject}
+        getSublabel={(paper) =>
+          `${paper.subjectCode} · ${paper.examType ?? paper.title} · ${paper.year}`
+        }
+        getKey={(paper) => paper.r2Key}
+        onSelect={(paper) => {
+          setSuggestionsOpen(false);
+          setSearchQuery(paper.subjectCode);
+          setSheetPaper(paper);
+        }}
+        onDismiss={() => setSuggestionsOpen(false)}
+        topOffset={dropdownTop ?? 200}
+        style={dropdownStyle}
       />
 
       <Modal
@@ -508,38 +604,48 @@ export default function QuestionPapersScreen({
           sheetPaper && handleSaveToDevice(sheetPaper, sheetPaper.setStatus)
         }
       />
-    </View>
+    </SafeAreaView>
   );
 }
 
-const FilterPill = ({ label, onPress }) => (
-  <TouchableOpacity
-    style={styles.filterPill}
-    onPress={onPress}
-    activeOpacity={0.8}
-  >
-    <Text style={styles.filterPillText} numberOfLines={1}>
-      {label}
-    </Text>
-    <ChevronDown size={14} color={colors.steel} />
-  </TouchableOpacity>
-);
-
-const ClearablePill = ({ label, onClear }) => (
-  <View style={styles.clearablePill}>
-    <Text style={styles.clearablePillText}>{label}</Text>
+const FilterPill = ({ label, onPress }) => {
+  const { colors } = useTheme();
+  const styles = useMemo(() => getStyles(colors), [colors]);
+  return (
     <TouchableOpacity
-      onPress={onClear}
-      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+      style={styles.filterPill}
+      onPress={onPress}
+      activeOpacity={0.8}
     >
-      <X size={12} color={colors.chrome} />
+      <Text style={styles.filterPillText} numberOfLines={1}>
+        {label}
+      </Text>
+      <ChevronDown size={14} color={colors.steel} />
     </TouchableOpacity>
-  </View>
-);
+  );
+};
+
+const ClearablePill = ({ label, onClear }) => {
+  const { colors } = useTheme();
+  const styles = useMemo(() => getStyles(colors), [colors]);
+  return (
+    <View style={styles.clearablePill}>
+      <Text style={styles.clearablePillText}>{label}</Text>
+      <TouchableOpacity
+        onPress={onClear}
+        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+      >
+        <X size={12} color={colors.chrome} />
+      </TouchableOpacity>
+    </View>
+  );
+};
 
 // Replaces <DownloadButton /> — mirrors its idle -> loading -> done states
 // using the same lucide icons (Download, Loader2, Check) the web file imported.
 const PaperCard = ({ paper, onOpenSheet }) => {
+  const { colors } = useTheme();
+  const styles = useMemo(() => getStyles(colors), [colors]);
   const [status, setStatus] = useState("idle");
 
   return (
@@ -584,7 +690,32 @@ const PaperCard = ({ paper, onOpenSheet }) => {
   );
 };
 
-const styles = StyleSheet.create({
+const PaperCardSkeleton = () => {
+  const { colors } = useTheme();
+  const styles = useMemo(() => getStyles(colors), [colors]);
+  return (
+    <View style={styles.card}>
+      <View style={styles.cardTopRow}>
+        <Skeleton style={styles.cardIconBox} />
+        <View style={{ flex: 1, marginLeft: 14 }}>
+          <Skeleton style={{ width: "50%", height: 11, marginBottom: 8 }} />
+          <Skeleton style={{ width: "85%", height: 15 }} />
+        </View>
+      </View>
+
+      <View style={styles.cardFooter}>
+        <View style={styles.footerLeft}>
+          <Skeleton style={{ width: 54, height: 20, borderRadius: 20 }} />
+          <Skeleton style={{ width: 70, height: 11 }} />
+        </View>
+        <Skeleton style={styles.downloadBtn} />
+      </View>
+    </View>
+  );
+};
+
+const getStyles = (colors) =>
+  StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.void },
 
   topBar: {
@@ -592,7 +723,7 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     alignItems: "center",
     paddingHorizontal: 20,
-    paddingTop: Platform.OS === "ios" ? 56 : 24,
+    paddingTop: 16,
     paddingBottom: 16,
     borderBottomWidth: 1,
     borderBottomColor: colors.hairline,
@@ -615,41 +746,11 @@ const styles = StyleSheet.create({
   },
   loginBtnText: { color: colors.void, fontWeight: "700", fontSize: 13 },
 
-  avatarBtn: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
-    backgroundColor: colors.onyxRaised,
-    borderWidth: 1,
-    borderColor: colors.hairline,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  avatarInitial: { color: colors.chrome, fontWeight: "700", fontSize: 13 },
-  avatarPanel: {
-    position: "absolute",
-    top: 44,
-    right: 0,
-    width: 200,
-    backgroundColor: colors.onyxRaised,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: colors.hairline,
-    padding: 14,
-    zIndex: 50,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.5,
-    shadowRadius: 18,
-    elevation: 10,
-  },
-  avatarName: { color: colors.chrome, fontWeight: "700", fontSize: 13.5 },
-  avatarEmail: { color: colors.steel, fontSize: 11.5, marginTop: 2 },
-  hr: { height: 1, backgroundColor: colors.hairline, marginVertical: 8 },
-  avatarRow: { paddingVertical: 8 },
-  avatarRowText: { color: colors.silver, fontSize: 13 },
+  listContent: { paddingHorizontal: 20, paddingTop: 16, paddingBottom: 40 },
 
-  listContent: { paddingHorizontal: 20, paddingBottom: 40 },
+  // Lifts the header (search + filters) above the result cards so the
+  // suggestions dropdown's blurred backdrop can cover the cards below it.
+  headerRaised: { zIndex: 100, elevation: 13 },
 
   searchWrap: {
     flexDirection: "row",
@@ -661,6 +762,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     height: 50,
     marginTop: 20,
+    zIndex: 30,
   },
   searchInput: {
     flex: 1,
@@ -669,6 +771,21 @@ const styles = StyleSheet.create({
     height: 50,
     borderWidth: 0,
     outlineStyle: "none",
+  },
+
+  disclaimerText: {
+    color: colors.steel,
+    fontSize: 11,
+    lineHeight: 15,
+    marginTop: 12,
+  },
+  sourceRow: { flexDirection: "row", alignItems: "center", gap: 6, marginTop: 8 },
+  sourceText: {
+    color: colors.accent,
+    fontSize: 11.5,
+    fontWeight: "600",
+    textDecorationLine: "underline",
+    flexShrink: 1,
   },
 
   filterRow: { flexDirection: "row", gap: 10, marginTop: 14 },
@@ -821,6 +938,24 @@ const styles = StyleSheet.create({
     lineHeight: 18,
   },
 
+  errorState: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 30,
+  },
+  retryBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginTop: 20,
+    paddingHorizontal: 18,
+    paddingVertical: 12,
+    borderRadius: 12,
+    backgroundColor: colors.chrome,
+  },
+  retryBtnText: { color: colors.void, fontSize: 13.5, fontWeight: "700" },
+
   modalBackdrop: {
     flex: 1,
     backgroundColor: "rgba(0,0,0,0.6)",
@@ -856,3 +991,4 @@ const styles = StyleSheet.create({
   },
   sheetOptionText: { color: colors.silver, fontSize: 15 },
 });
+

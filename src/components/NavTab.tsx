@@ -64,12 +64,61 @@ const icons: Record<string, (color: string) => React.ReactNode> = {
     </Svg>
   ),
 
+  forum: (color) => (
+    <Svg width={20} height={20} viewBox="0 0 24 24" fill="none">
+      <Path
+        d="M4 5.5A1.5 1.5 0 0 1 5.5 4h9A1.5 1.5 0 0 1 16 5.5v6a1.5 1.5 0 0 1-1.5 1.5H9l-3.5 3v-3h0A1.5 1.5 0 0 1 4 11.5v-6Z"
+        stroke={color}
+        strokeWidth={1.8}
+        strokeLinejoin="round"
+      />
+
+      <Path
+        d="M19 9.5h.5A1.5 1.5 0 0 1 21 11v6a1.5 1.5 0 0 1-1.5 1.5H19v2.5L15.8 18.5H12a1.5 1.5 0 0 1-1.5-1.5v-1"
+        stroke={color}
+        strokeWidth={1.8}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </Svg>
+  ),
+
   profile: (color) => (
     <Svg width={20} height={20} viewBox="0 0 24 24" fill="none">
       <Circle cx={12} cy={8} r={3.5} stroke={color} strokeWidth={1.8} />
 
       <Path
         d="M5 20c1.2-4 4-6 7-6s5.8 2 7 6"
+        stroke={color}
+        strokeWidth={1.8}
+        strokeLinecap="round"
+      />
+    </Svg>
+  ),
+
+  attendance: (color) => (
+    <Svg width={20} height={20} viewBox="0 0 24 24" fill="none">
+      <Path
+        d="M6 4h9.5A1.5 1.5 0 0 1 17 5.5V20l-5.5-2.8L6 20V5.5A1.5 1.5 0 0 1 7.5 4Z"
+        stroke={color}
+        strokeWidth={1.8}
+        strokeLinejoin="round"
+      />
+
+      <Path
+        d="m9 11 2 2 4-4.5"
+        stroke={color}
+        strokeWidth={1.8}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </Svg>
+  ),
+
+  hub: (color) => (
+    <Svg width={20} height={20} viewBox="0 0 24 24" fill="none">
+      <Path
+        d="M4 7h16M4 12h16M4 17h16"
         stroke={color}
         strokeWidth={1.8}
         strokeLinecap="round"
@@ -196,8 +245,10 @@ export default function LiquidGlassTabBar({
   };
 
   const handlePress = (key: string) => {
-    if (key === activeKey) return;
-
+    // Always notify the parent, even for the already-active tab — it needs
+    // to hear about reselects to trigger a refresh. The pill-slide animation
+    // below is driven by `activeKey` changing, so reselecting the same tab
+    // naturally stays a no-op there.
     onChange(key);
   };
 

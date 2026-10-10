@@ -1,8 +1,72 @@
-# Welcome to your Expo app 👋
+# NIT Stack
 
-This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
+NIT Stack is a mobile app built for NIT Kurukshetra students to get their academic
+and campus life handled in one place — previous year question papers, syllabus,
+attendance tracking, a campus forum, and placement/internship opportunities.
 
-## Get started
+> This is a mobile app (Android/iOS), built with Expo and React Native. There is no
+> web product — any web-related packages in this repo exist only to support Expo's
+> tooling, not to ship a website.
+
+## Features
+
+### Previous year question papers
+- Browse and search previous year question papers by branch, semester, and subject
+- Download papers for offline access, with multiple download/share options
+- Student-submitted papers go through an admin verification flow before going live
+- Bookmark papers to a personal "saved" list
+
+### Syllabus
+- Browse syllabus by course and subject
+- Per-subject detail pages with structured topic breakdowns
+
+### Attendance tracker
+- Set up a personal timetable once and track attendance per subject from then on
+- Daily attendance marking with a quick-access floating action button
+- Per-subject stats and a calendar view to see attendance history at a glance
+- Local reminders/notifications so you don't forget to mark attendance
+
+### Campus forum
+- Reddit-style community forum scoped to campus communities
+- Create posts with rich text, images, and math rendering
+- Nested comments, voting, sorting, and search
+- Interview experience and on-campus/off-campus (OA) posts go through admin
+  approval before appearing publicly
+- Save posts, report content, and moderate communities you manage
+
+### Opportunities (placements & internships)
+- Browse internship, placement, and other opportunity postings with filters
+- Maintain a career profile and resume to apply faster
+- Track your own applications and their status
+- Get notified about new postings and deadlines
+- Admins can create, edit, and moderate opportunity listings from an in-app
+  admin dashboard
+
+### Account & personalization
+- Email/password and Google sign-in, with email verification and password reset
+- Light/dark theme support across the entire app
+- Push and local notification preferences
+- Profile management, including the career profile used for opportunities
+
+### Other
+- About, contact, contribute, donate, privacy policy, and tech stack info pages
+- Toast-based in-app notifications and skeleton loading states for a smoother feel
+
+## Tech stack
+
+- **Framework:** [Expo](https://expo.dev) (SDK 57) + [React Native](https://reactnative.dev) 0.86
+- **Routing:** Expo Router (file-based routing, typed routes)
+- **Language:** JavaScript/JSX with TypeScript for select modules
+- **UI/Animation:** React Native Reanimated, React Native Gesture Handler, Expo Blur/Glass Effect, Lucide icons
+- **Auth & backend services:** Firebase, Google Sign-In, Apple Authentication, JWT
+- **Rich content:** TenTap editor, react-native-render-html (rich text, math, and markdown rendering in the forum)
+- **Device/native APIs:** Expo File System, Document Picker, Image Picker, Image Manipulator, Notifications, Secure Store, Sharing, Print
+- **Search:** Fuse.js for fuzzy search (papers, opportunities, forum)
+- **State & data fetching:** React hooks and context (no external state library)
+- **Build & delivery:** EAS Build/Update, expo-build-properties
+- **Tooling:** ESLint, TypeScript
+
+## Getting started
 
 1. Install dependencies
 
@@ -16,41 +80,26 @@ This is an [Expo](https://expo.dev) project created with [`create-expo-app`](htt
    npx expo start
    ```
 
-In the output, you'll find options to open the app in a
+3. Open it on a device or emulator
 
-- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
-- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
-- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
-- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
+   ```bash
+   npm run android   # Android
+   npm run ios       # iOS
+   ```
 
-You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
+A development build or Expo Go can be used for local testing. Production builds
+are shipped through EAS (`eas.json`).
 
-## Get a fresh project
+## Project structure
 
-When you're ready, run:
-
-```bash
-npm run reset-project
 ```
-
-This command will move the starter code to the **app-example** directory and create a blank **app** directory where you can start developing.
-
-### Other setup steps
-
-- To set up ESLint for linting, run `npx expo lint`, or follow our guide on ["Using ESLint and Prettier"](https://docs.expo.dev/guides/using-eslint/)
-- If you'd like to set up unit testing, follow our guide on ["Unit Testing with Jest"](https://docs.expo.dev/develop/unit-testing/)
-- Learn more about the TypeScript setup in this template in our guide on ["Using TypeScript"](https://docs.expo.dev/guides/typescript/)
-
-## Learn more
-
-To learn more about developing your project with Expo, look at the following resources:
-
-- [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
-- [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
-
-## Join the community
-
-Join our community of developers creating universal apps.
-
-- [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
-- [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+src/
+  app/            Screens, grouped by feature (expo-router file-based routing)
+  components/     Reusable UI components, grouped by feature
+  contexts/       Auth, theme, and toast context providers
+  hooks/          Feature-specific data/state hooks
+  services/       Firebase and backend API integrations
+  constants/      Shared constant values
+  utils/          Small shared helper functions
+plugins/          Custom Expo config plugins
+```

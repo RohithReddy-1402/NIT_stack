@@ -1,35 +1,27 @@
 import { X } from "lucide-react-native";
-import { useEffect, useRef } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import {
     Animated,
-    Platform,
     StyleSheet,
     Text,
     TouchableOpacity,
     View,
 } from "react-native";
-
-const colors = {
-  onyx: "#141416",
-  onyxRaised: "#1C1C1F",
-  chrome: "#F5F5F7",
-  silver: "#C9C9CE",
-  steel: "#8E8E93",
-  hairline: "#2C2C30",
-};
-
-const ACCENTS = {
-  info: colors.chrome, // white/chrome — neutral, default
-  success: "#32D74B", // green
-  error: "#FF453A", // red
-  warning: "#FFD60A", // amber, in case you use it elsewhere
-};
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useTheme } from "../contexts/ThemeContext";
 
 const ToastContainer = ({ toasts, onClose }) => {
+  const { colors } = useTheme();
+  const styles = useMemo(() => getStyles(colors), [colors]);
+  const insets = useSafeAreaInsets();
+
   if (!toasts.length) return null;
 
   return (
-    <View style={styles.container} pointerEvents="box-none">
+    <View
+      style={[styles.container, { top: insets.top + 8 }]}
+      pointerEvents="box-none"
+    >
       {toasts.map(({ id, message, type, duration }) => (
         <Toast
           key={id}
@@ -45,6 +37,17 @@ const ToastContainer = ({ toasts, onClose }) => {
 };
 
 const Toast = ({ id, message, type, duration = 3500, onClose }) => {
+  const { colors } = useTheme();
+  const styles = useMemo(() => getStyles(colors), [colors]);
+  const ACCENTS = useMemo(
+    () => ({
+      info: colors.chrome, // white/chrome — neutral, default
+      success: "#32D74B", // green
+      error: "#FF453A", // red
+      warning: "#FFD60A", // amber, in case you use it elsewhere
+    }),
+    [colors],
+  );
   const progress = useRef(new Animated.Value(1)).current;
   const enter = useRef(new Animated.Value(0)).current;
 
@@ -100,7 +103,7 @@ const Toast = ({ id, message, type, duration = 3500, onClose }) => {
         </TouchableOpacity>
       </View>
 
-      {/* countdown line: 100% -> 0% */}
+      {/* countdown line: 100% -> 0%, pinned flush to the bottom edge */}
       <View style={styles.trackBg}>
         <Animated.View
           style={[
@@ -113,10 +116,10 @@ const Toast = ({ id, message, type, duration = 3500, onClose }) => {
   );
 };
 
-const styles = StyleSheet.create({
+const getStyles = (colors) =>
+  StyleSheet.create({
   container: {
     position: "absolute",
-    top: Platform.OS === "ios" ? 56 : 32,
     left: 16,
     right: 16,
     zIndex: 999,
@@ -127,9 +130,11 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     borderWidth: 1,
     borderColor: colors.hairline,
-    paddingTop: 12,
-    paddingHorizontal: 14,
-    paddingBottom: 10,
+    // Taller than before, with the bottom padding a touch larger than the top
+    // because the 4px countdown line overlays the bottom edge.
+    paddingTop: 18,
+    paddingHorizontal: 16,
+    paddingBottom: 20,
     overflow: "hidden",
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 10 },
@@ -142,37 +147,39 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   dot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    marginRight: 10,
+    width: 9,
+    height: 9,
+    borderRadius: 4.5,
+    marginRight: 12,
   },
   message: {
     flex: 1,
     color: colors.chrome,
-    fontSize: 14,
+    fontSize: 14.5,
     fontWeight: "600",
-    lineHeight: 19,
+    lineHeight: 20,
   },
   closeBtn: {
-    marginLeft: 10,
-    width: 24,
-    height: 24,
-    borderRadius: 12,
+    marginLeft: 12,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
     alignItems: "center",
     justifyContent: "center",
     backgroundColor: "rgba(255,255,255,0.04)",
   },
+  // Absolutely positioned so it sits on the bottom edge rather than after the
+  // content; the toast's rounded corners (overflow: hidden) clip its ends.
   trackBg: {
-    height: 3,
-    borderRadius: 2,
+    position: "absolute",
+    left: 0,
+    right: 0,
+    bottom: 0,
+    height: 4,
     backgroundColor: colors.hairline,
-    marginTop: 10,
-    overflow: "hidden",
   },
   trackFill: {
     height: "100%",
-    borderRadius: 2,
   },
 });
 

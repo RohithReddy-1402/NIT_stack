@@ -6,11 +6,12 @@ import {
   ArrowRight,
   Book,
   BookOpen,
+  CalendarCheck,
   Download,
   Star,
   Upload,
 } from "lucide-react-native";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Dimensions,
   ScrollView,
@@ -21,34 +22,28 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import Header from "../components/Header";
+import { useAuth } from "../contexts/AuthContext";
+import { useTheme } from "../contexts/ThemeContext";
+import { useAttendanceSemesters } from "../hooks/useAttendanceSemesters";
+import { useAttendanceStats } from "../hooks/useAttendanceStats";
+import { useRefetchOnFocus } from "../hooks/useRefetchOnFocus";
+import { usePapers } from "../hooks/usePapers";
+import { onTabReselect } from "../utils/tabRefresh";
 const { width: SCREEN_W } = Dimensions.get("window");
 
-const colors = {
-  void: "#0A0A0B",
-  onyx: "#141416",
-  onyxRaised: "#1C1C1F",
-  chrome: "#F5F5F7",
-  silver: "#C9C9CE",
-  steel: "#8E8E93",
-  hairline: "#2C2C30",
-  glossHi: "rgba(255,255,255,0.14)",
-  glossLo: "rgba(255,255,255,0.02)",
-};
-
-const HomePage = ({
-  isLoggedIn,
-  user,
-  onLoginClick,
-  onLogin,
-  onLogout,
-  onSignUpClick,
-  onContributeClick,
-  questionPapers,
-}) => {
+const HomePage = () => {
   const { addToast } = useToast();
+  const { isLoggedIn, user } = useAuth();
+  const { questionPapers, refetch: refetchPapers } = usePapers();
+  // Home only shows attendance numbers, so it must not create the implicit
+  // semester just by being opened — that happens on the Attendance screen.
+  const { activeSemester, refetch: refetchSemesters } =
+    useAttendanceSemesters({ create: false });
+  const { stats: attendanceStats, refetch: refetchAttendanceStats } =
+    useAttendanceStats(activeSemester?.id);
+  const { colors } = useTheme();
+  const styles = useMemo(() => getStyles(colors), [colors]);
 
-  const [downloadCount, setDownloadCounts] = useState(0);
-  const [papersLength, setPapersLength] = useState(0);
   const [showWelcome, setShowWelcome] = useState(true);
   const [pressedKey, setPressedKey] = useState(null);
   useEffect(() => {
@@ -68,19 +63,33 @@ const HomePage = ({
     }
   }, [showWelcome]);
 
+  // Attendance is edited on screens pushed over Home, so reload its numbers
+  // (and whether a semester exists yet) when coming back.
+  useRefetchOnFocus(() => {
+    refetchSemesters();
+    refetchAttendanceStats();
+  });
+
+  // Re-tapping the Home tab while already on Home has nowhere to navigate
+  // to, so treat it as a pull-to-refresh instead.
+  useEffect(() => onTabReselect((key) => {
+    if (key !== "/") return;
+    refetchPapers();
+    refetchAttendanceStats();
+  }), [refetchPapers, refetchAttendanceStats]);
+
   const handleQuestionPapers = () => {
     router.push("papers");
   };
 
-  const handleVerifyPapers = () => {
-    router.push("verifyPaper");
+  const handleAdminDashboard = () => {
+    router.push("admin");
   };
 
   const handleContribute = () => {
     if (!isLoggedIn) {
       addToast("Please log in to Contribute", "error");
     } else {
-      onContributeClick();
       router.push("contribute");
     }
   };
@@ -89,16 +98,19 @@ const HomePage = ({
     router.push("syllabus");
   };
 
-  useEffect(() => {
-    // const totalDownloads = questionPapers.reduce(
-    //   (sum, paper) => sum + paper.downloads,
-    //   0,
-    // );
-    const totalDownloads = 20000;
-    setDownloadCounts(totalDownloads);
-    // setPapersLength(questionPapers.length);
-    setPapersLength(300);
-  }, [questionPapers]);
+  const handleAttendance = () => {
+    if (!isLoggedIn) {
+      addToast("Please log in to track attendance", "error");
+    } else {
+      router.push("attendance");
+    }
+  };
+
+  const papersLength = questionPapers?.length ?? 0;
+  const downloadCount = (questionPapers ?? []).reduce(
+    (sum, paper) => sum + (paper.downloads ?? 0),
+    0,
+  );
 
   if (showWelcome) {
     return (
@@ -122,14 +134,7 @@ const HomePage = ({
         style={StyleSheet.absoluteFill}
       />
 
-      <Header
-        isLoggedIn={isLoggedIn}
-        user={user}
-        onLoginClick={onLoginClick}
-        onLogin={onLogin}
-        onLogout={onLogout}
-        onSignUpClick={onSignUpClick}
-      />
+      <Header />
 
       <ScrollView
         contentContainerStyle={styles.scrollContent}
@@ -187,7 +192,9 @@ const HomePage = ({
                 <View style={styles.statIconRing}>
                   <Book size={16} color={colors.chrome} strokeWidth={1.75} />
                 </View>
-                <Text style={styles.statValue}>{papersLength}</Text>
+                <Text style={styles.statValue}>
+                  {papersLength.toLocaleString()}
+                </Text>
                 <Text style={styles.statLabel}>Papers</Text>
               </View>
               <View style={styles.statDivider} />
@@ -199,12 +206,35 @@ const HomePage = ({
                     strokeWidth={1.75}
                   />
                 </View>
-                <Text style={styles.statValue}>{downloadCount}</Text>
+                <Text style={styles.statValue}>
+                  {downloadCount.toLocaleString()}
+                </Text>
                 <Text style={styles.statLabel}>Downloads</Text>
               </View>
             </View>
           </LinearGradient>
         </View>
+
+        {isLoggedIn && (
+          <TouchableOpacity
+            style={styles.attendanceCard}
+            activeOpacity={0.85}
+            onPress={handleAttendance}
+          >
+            <View style={styles.attendanceIconRing}>
+              <CalendarCheck size={20} color={colors.chrome} strokeWidth={1.75} />
+            </View>
+            <View style={{ flex: 1, marginLeft: 14 }}>
+              <Text style={styles.attendanceTitle}>Attendance</Text>
+              <Text style={styles.attendanceSubtitle}>
+                {activeSemester
+                  ? `${Math.round(attendanceStats?.overall?.percentage ?? 0)}% overall`
+                  : "Add your subjects to start tracking"}
+              </Text>
+            </View>
+            <ArrowRight size={18} color={colors.steel} />
+          </TouchableOpacity>
+        )}
 
         {/* Actions */}
         <View style={styles.actions}>
@@ -245,7 +275,7 @@ const HomePage = ({
 
           {user?.role === "admin" && (
             <GlossyButton
-              label="Verify Papers"
+              label="Admin Dashboard"
               variant="admin"
               icon={
                 <Star
@@ -260,14 +290,13 @@ const HomePage = ({
                   <ArrowRight size={16} color={colors.chrome} />
                 ) : null
               }
-              onPress={handleVerifyPapers}
+              onPress={handleAdminDashboard}
               pressedKey={pressedKey}
               setPressedKey={setPressedKey}
               pressKey="special"
             />
           )}
         </View>
-
         <View style={styles.footer}>
           <Text style={styles.footerText}>
             © 2026 NIT KKR PYQS. All rights reserved.
@@ -288,6 +317,8 @@ const GlossyButton = ({
   setPressedKey,
   pressKey,
 }) => {
+  const { colors } = useTheme();
+  const styles = useMemo(() => getStyles(colors), [colors]);
   const isPressed = pressedKey === pressKey;
 
   const containerStyle = [
@@ -325,7 +356,7 @@ const GlossyButton = ({
           colors={
             variant === "admin"
               ? [colors.onyxRaised, colors.onyx]
-              : [colors.chrome, "#D8D8DD"]
+              : [colors.chrome, colors.chromeSecondary]
           }
           start={{ x: 0, y: 0 }}
           end={{ x: 1, y: 1 }}
@@ -351,188 +382,211 @@ const GlossyButton = ({
 
 const CARD_W = Math.min(SCREEN_W - 48, 420);
 
-const styles = StyleSheet.create({
-  safeArea: { flex: 1, backgroundColor: colors.void },
-  scrollContent: { paddingHorizontal: 24, paddingBottom: 48 },
+const getStyles = (colors) =>
+  StyleSheet.create({
+    safeArea: { flex: 1, backgroundColor: colors.void },
+    scrollContent: { paddingHorizontal: 24, paddingBottom: 48 },
 
-  splash: {
-    flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  splashRow: { flexDirection: "row", alignItems: "center" },
-  splashText: {
-    color: colors.chrome,
-    fontSize: 32,
-    fontWeight: "700",
-    letterSpacing: 1,
-    marginRight: 12,
-  },
+    splash: {
+      flex: 1,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    splashRow: { flexDirection: "row", alignItems: "center" },
+    splashText: {
+      color: colors.chrome,
+      fontSize: 32,
+      fontWeight: "700",
+      letterSpacing: 1,
+      marginRight: 12,
+    },
 
-  heroTextBlock: { marginTop: 28, marginBottom: 24 },
-  eyebrow: {
-    color: colors.steel,
-    fontSize: 12,
-    fontWeight: "600",
-    letterSpacing: 2,
-    marginBottom: 10,
-    textTransform: "uppercase",
-  },
-  heading: {
-    color: colors.chrome,
-    fontSize: 34,
-    lineHeight: 40,
-    fontWeight: "800",
-    letterSpacing: -0.5,
-    marginBottom: 14,
-  },
-  subheading: {
-    color: colors.silver,
-    fontSize: 15,
-    lineHeight: 22,
-  },
+    heroTextBlock: { marginTop: 28, marginBottom: 24 },
+    eyebrow: {
+      color: colors.steel,
+      fontSize: 12,
+      fontWeight: "600",
+      letterSpacing: 2,
+      marginBottom: 10,
+      textTransform: "uppercase",
+    },
+    heading: {
+      color: colors.chrome,
+      fontSize: 34,
+      lineHeight: 40,
+      fontWeight: "800",
+      letterSpacing: -0.5,
+      marginBottom: 14,
+    },
+    subheading: {
+      color: colors.silver,
+      fontSize: 15,
+      lineHeight: 22,
+    },
 
-  admitCardWrap: {
-    alignItems: "center",
-    marginBottom: 32,
-  },
-  admitCard: {
-    width: CARD_W,
-    borderRadius: 22,
-    padding: 24,
-    borderWidth: 1,
-    borderColor: colors.hairline,
-    overflow: "hidden",
-    // glossy elevation
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 18 },
-    shadowOpacity: 0.55,
-    shadowRadius: 30,
-    elevation: 12,
-  },
-  sheen: {
-    position: "absolute",
-    top: 0,
-    left: 0,
-    right: 0,
-    height: "60%",
-  },
-  admitCardHeaderRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-  },
-  admitCardLabel: {
-    color: colors.steel,
-    fontSize: 11,
-    fontWeight: "700",
-    letterSpacing: 3,
-  },
-  perfDots: { flexDirection: "row" },
-  dot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: colors.hairline,
-    marginLeft: 5,
-  },
-  admitCardTitle: {
-    color: colors.chrome,
-    fontSize: 22,
-    fontWeight: "700",
-    marginBottom: 6,
-  },
-  admitCardSubtitle: {
-    color: colors.silver,
-    fontSize: 13.5,
-    lineHeight: 19,
-  },
-  perforation: {
-    borderTopWidth: 1,
-    borderStyle: "dashed",
-    borderColor: colors.hairline,
-    marginTop: 22,
-    marginBottom: 18,
-  },
-  statsRow: { flexDirection: "row", alignItems: "center" },
-  statCell: { flex: 1, alignItems: "flex-start" },
-  statIconRing: {
-    width: 30,
-    height: 30,
-    borderRadius: 15,
-    borderWidth: 1,
-    borderColor: colors.hairline,
-    backgroundColor: "rgba(255,255,255,0.03)",
-    alignItems: "center",
-    justifyContent: "center",
-    marginBottom: 8,
-  },
-  statValue: {
-    color: colors.chrome,
-    fontSize: 20,
-    fontWeight: "800",
-  },
-  statLabel: {
-    color: colors.steel,
-    fontSize: 12,
-    fontWeight: "600",
-    marginTop: 2,
-  },
-  statDivider: {
-    width: 1,
-    height: 36,
-    backgroundColor: colors.hairline,
-    marginHorizontal: 16,
-  },
+    admitCardWrap: {
+      alignItems: "center",
+      marginBottom: 32,
+    },
+    admitCard: {
+      width: CARD_W,
+      borderRadius: 22,
+      padding: 24,
+      borderWidth: 1,
+      borderColor: colors.hairline,
+      overflow: "hidden",
+      shadowColor: "#000",
+      shadowOffset: { width: 0, height: 18 },
+      shadowOpacity: 0.55,
+      shadowRadius: 30,
+      elevation: 12,
+    },
+    sheen: {
+      position: "absolute",
+      top: 0,
+      left: 0,
+      right: 0,
+      height: "60%",
+    },
+    admitCardHeaderRow: {
+      flexDirection: "row",
+      justifyContent: "space-between",
+      alignItems: "center",
+    },
+    admitCardLabel: {
+      color: colors.steel,
+      fontSize: 11,
+      fontWeight: "700",
+      letterSpacing: 3,
+    },
+    perfDots: { flexDirection: "row" },
+    dot: {
+      width: 6,
+      height: 6,
+      borderRadius: 3,
+      backgroundColor: colors.hairline,
+      marginLeft: 5,
+    },
+    admitCardTitle: {
+      color: colors.chrome,
+      fontSize: 22,
+      fontWeight: "700",
+      marginBottom: 6,
+    },
+    admitCardSubtitle: {
+      color: colors.silver,
+      fontSize: 13.5,
+      lineHeight: 19,
+    },
+    perforation: {
+      borderTopWidth: 1,
+      borderStyle: "dashed",
+      borderColor: colors.hairline,
+      marginTop: 22,
+      marginBottom: 18,
+    },
+    statsRow: { flexDirection: "row", alignItems: "center" },
+    statCell: { flex: 1, alignItems: "flex-start" },
+    statIconRing: {
+      width: 30,
+      height: 30,
+      borderRadius: 15,
+      borderWidth: 1,
+      borderColor: colors.hairline,
+      backgroundColor: "rgba(255,255,255,0.03)",
+      alignItems: "center",
+      justifyContent: "center",
+      marginBottom: 8,
+    },
+    statValue: {
+      color: colors.chrome,
+      fontSize: 20,
+      fontWeight: "800",
+    },
+    statLabel: {
+      color: colors.steel,
+      fontSize: 12,
+      fontWeight: "600",
+      marginTop: 2,
+    },
+    statDivider: {
+      width: 1,
+      height: 36,
+      backgroundColor: colors.hairline,
+      marginHorizontal: 16,
+    },
 
-  actions: { gap: 14, marginBottom: 20 },
-  btnBase: {
-    height: 56,
-    borderRadius: 16,
-    overflow: "hidden",
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: colors.onyxRaised,
-    borderWidth: 1,
-    borderColor: colors.hairline,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.35,
-    shadowRadius: 14,
-    elevation: 6,
-  },
-  btnOutline: {
-    backgroundColor: "transparent",
-    borderWidth: 1.5,
-    borderColor: colors.chrome,
-  },
-  btnAdmin: {
-    borderColor: "#3A3A3D",
-  },
-  btnContentRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  btnLabel: {
-    fontSize: 16,
-    fontWeight: "700",
-    letterSpacing: 0.2,
-  },
-  btnLabelPrimary: { color: colors.void },
-  btnLabelOutline: { color: colors.chrome },
-  btnLabelAdmin: { color: colors.chrome },
+    attendanceCard: {
+      flexDirection: "row",
+      alignItems: "center",
+      backgroundColor: colors.onyxRaised,
+      borderRadius: 18,
+      borderWidth: 1,
+      borderColor: colors.hairline,
+      padding: 16,
+      marginBottom: 20,
+    },
+    attendanceIconRing: {
+      width: 42,
+      height: 42,
+      borderRadius: 13,
+      backgroundColor: colors.onyx,
+      borderWidth: 1,
+      borderColor: colors.hairline,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    attendanceTitle: { color: colors.chrome, fontSize: 14.5, fontWeight: "700" },
+    attendanceSubtitle: { color: colors.steel, fontSize: 12, marginTop: 3 },
 
-  footer: {
-    paddingTop: 20,
-    borderTopWidth: 1,
-    borderTopColor: colors.hairline,
-    alignItems: "center",
-  },
-  footerText: {
-    color: colors.steel,
-    fontSize: 12,
-  },
-});
+    actions: { gap: 14, marginBottom: 20 },
+    btnBase: {
+      height: 56,
+      borderRadius: 16,
+      overflow: "hidden",
+      alignItems: "center",
+      justifyContent: "center",
+      backgroundColor: colors.onyxRaised,
+      borderWidth: 1,
+      borderColor: colors.hairline,
+      shadowColor: "#000",
+      shadowOffset: { width: 0, height: 8 },
+      shadowOpacity: 0.35,
+      shadowRadius: 14,
+      elevation: 6,
+    },
+    btnOutline: {
+      backgroundColor: "transparent",
+      borderWidth: 1.5,
+      borderColor: colors.chrome,
+    },
+    btnAdmin: {
+      borderColor: "#3A3A3D",
+    },
+    btnContentRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    btnLabel: {
+      fontSize: 16,
+      fontWeight: "700",
+      letterSpacing: 0.2,
+    },
+    btnLabelPrimary: { color: colors.void },
+    btnLabelOutline: { color: colors.chrome },
+    btnLabelAdmin: { color: colors.chrome },
+
+    footer: {
+      paddingTop: 20,
+      borderTopWidth: 1,
+      borderTopColor: colors.hairline,
+      alignItems: "center",
+    },
+    footerText: {
+      color: colors.steel,
+      fontSize: 12,
+    },
+  });
 
 export default HomePage;

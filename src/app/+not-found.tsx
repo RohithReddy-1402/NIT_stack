@@ -1,16 +1,13 @@
 import { router } from "expo-router";
 import { FileQuestion } from "lucide-react-native";
+import { useMemo } from "react";
 import { StyleSheet, Text, TouchableOpacity, View } from "react-native";
-
-const colors = {
-  void: "#0A0A0B",
-  chrome: "#F5F5F7",
-  silver: "#C9C9CE",
-  steel: "#8E8E93",
-  hairline: "#2C2C30",
-};
+import { useTheme } from "../contexts/ThemeContext";
 
 export default function NotFoundScreen() {
+  const { colors } = useTheme();
+  const styles = useMemo(() => getStyles(colors), [colors]);
+
   return (
     <View style={styles.screen}>
       <FileQuestion size={48} color={colors.steel} strokeWidth={1.5} />
@@ -29,7 +26,8 @@ export default function NotFoundScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const getStyles = (colors: ReturnType<typeof useTheme>["colors"]) =>
+  StyleSheet.create({
   screen: {
     flex: 1,
     backgroundColor: colors.void,
